@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Дежурная не ушла</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="game-frame" aria-label="Дежурная не ушла">
+        <canvas id="game" width="1280" height="720"></canvas>
+        <div id="noise" aria-hidden="true"></div>
+        <div id="hud">
+          <div class="meter">
+            <span>Шум</span>
+            <i id="noiseMeter"></i>
+          </div>
+          <div class="meter danger">
+            <span>Паника</span>
+            <i id="panicMeter"></i>
+          </div>
+          <div id="objective">Восстанови питание: 0/4</div>
+        </div>
+        <div id="message" class="message"></div>
+        <button id="startButton" class="start-button" type="button">Начать смену</button>
+      </section>
+    </main>
+    <script src="game.js"></script>
+  </body>
+</html>
