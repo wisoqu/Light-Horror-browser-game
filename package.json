@@ -1,0 +1,10 @@
+{
+  "name": "light-horror-browser-game",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "«Дежурная не ушла» — 3D-хоррор от первого лица в браузере (Three.js)",
+  "scripts": {
+    "start": "python3 -m http.server 8000"
+  }
+}
