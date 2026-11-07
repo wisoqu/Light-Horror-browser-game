@@ -1,94 +1,17 @@
-import * as THREE from "three";
 import { TILE, PATROL_CELLS, cellCenter, cellAt, hasLineOfSight, isWallWorld, nextStepWorld } from "./world.js";
+import { createDutyFigure } from "./monster.js";
+
+export { createDutyFigure };
 
 /* ============================================================
-   Дежурная: фигура (процедурная модель) и конечный автомат ИИ
+   Дежурная: конечный автомат ИИ
    patrol → investigate → hunt → search
+
+   ВАЖНО: модель фигуры живёт в monster.js. Имена частей, которые
+   крутит animate(), — контракт: parts.armL, parts.armR, parts.head,
+   parts.eyeMat. Логику ИИ в этом файле менять не нужно, чтобы
+   переделать внешний вид.
    ============================================================ */
-
-/** Процедурная модель фигуры дежурной. ghost=true — вариант привидения. */
-export function createDutyFigure({ ghost = false } = {}) {
-  const g = new THREE.Group();
-  const parts = {};
-
-  const cloth = ghost
-    ? new THREE.MeshStandardMaterial({ color: 0xdde5ee, emissive: 0x93a8bc, emissiveIntensity: 1.35, transparent: true, opacity: 0.4, roughness: 1, depthWrite: false })
-    : new THREE.MeshStandardMaterial({ color: 0x0a0a0e, roughness: 0.97 });
-  const blouse = ghost ? cloth : new THREE.MeshStandardMaterial({ color: 0x121218, roughness: 0.92 });
-  const skin = ghost
-    ? new THREE.MeshStandardMaterial({ color: 0xf2f7fb, emissive: 0xb9cbdc, emissiveIntensity: 1.5, transparent: true, opacity: 0.5, depthWrite: false })
-    : new THREE.MeshStandardMaterial({ color: 0x7a6b5b, roughness: 0.88 });
-  const hair = ghost ? cloth : new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 1 });
-
-  // Юбка-колокол (дежурная «плывёт» по коридору).
-  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.46, 1.15, 14), cloth);
-  skirt.position.y = 0.6;
-  skirt.castShadow = true;
-  g.add(skirt);
-  parts.skirt = skirt;
-
-  // Торс.
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.42, 6, 12), blouse);
-  torso.position.y = 1.42;
-  torso.castShadow = true;
-  g.add(torso);
-  parts.torso = torso;
-
-  // Голова.
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.165, 16, 14), skin);
-  head.position.y = 1.87;
-  head.scale.set(0.92, 1.08, 0.95);
-  head.castShadow = true;
-  g.add(head);
-  parts.head = head;
-
-  // Волосы — чёлка и пучок.
-  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.175, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), hair);
-  hairCap.position.y = 1.9;
-  hairCap.scale.set(1, 1.05, 1);
-  g.add(hairCap);
-  const bun = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), hair);
-  bun.position.set(0, 1.93, 0.15);
-  g.add(bun);
-
-  // Глаза.
-  const eyeMat = new THREE.MeshBasicMaterial({ color: ghost ? 0xffffff : 0xe8dfd0 });
-  const eyeGeo = new THREE.SphereGeometry(0.026, 8, 8);
-  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-  const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeL.position.set(-0.06, 1.89, -0.145);
-  eyeR.position.set(0.06, 1.89, -0.145);
-  g.add(eyeL, eyeR);
-  parts.eyeL = eyeL;
-  parts.eyeR = eyeR;
-  parts.eyeMat = eyeMat;
-
-  // Руки.
-  const armGeo = new THREE.CapsuleGeometry(0.055, 0.62, 4, 8);
-  const armL = new THREE.Mesh(armGeo, blouse);
-  const armR = new THREE.Mesh(armGeo, blouse);
-  armL.position.set(-0.26, 1.35, 0);
-  armR.position.set(0.26, 1.35, 0);
-  armL.castShadow = true;
-  armR.castShadow = true;
-  g.add(armL, armR);
-  parts.armL = armL;
-  parts.armR = armR;
-
-  if (!ghost) {
-    // Ведомость в руке — она всё ещё на смене.
-    const clipboard = new THREE.Mesh(
-      new THREE.BoxGeometry(0.2, 0.27, 0.02),
-      new THREE.MeshStandardMaterial({ color: 0x6b5f43, roughness: 0.9 })
-    );
-    clipboard.position.set(0.03, -0.34, -0.07);
-    clipboard.rotation.x = -0.3;
-    armR.add(clipboard);
-  }
-
-  g.userData.parts = parts;
-  return g;
-}
 
 export class Enemy {
   constructor(scene, world) {

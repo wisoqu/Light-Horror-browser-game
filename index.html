@@ -3,7 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Дежурная не ушла — 3D</title>
+    <meta name="theme-color" content="#050607" />
+    <meta
+      name="description"
+      content="«Дежурная не ушла» — браузерный хоррор от первого лица в ночной гимназии № 42. Восстанови четыре щитка и дойди до выхода, пока дежурная не нашла тебя."
+    />
+    <title>Дежурная не ушла — Гимназия № 42</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0c0e'/%3E%3Ccircle cx='16' cy='13' r='6' fill='%23d9cfb8'/%3E%3Ccircle cx='13' cy='12' r='1.4' fill='%230b0c0e'/%3E%3Ccircle cx='19' cy='12' r='1.4' fill='%230b0c0e'/%3E%3Crect x='9' y='20' width='14' height='9' fill='%232a3038'/%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="style.css" />
     <script type="importmap">
       {
@@ -20,6 +29,7 @@
     <div id="vignette" aria-hidden="true"></div>
     <div id="blood" aria-hidden="true"></div>
     <div id="flash" aria-hidden="true"></div>
+    <div id="crosshair" aria-hidden="true"></div>
 
     <div id="hud" class="hidden">
       <div class="hud-left">
@@ -47,7 +57,7 @@
     <div id="prompt" class="hidden"></div>
 
     <div id="interact" class="hidden">
-      <svg viewBox="0 0 64 64" width="64" height="64">
+      <svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
         <circle class="ring-bg" cx="32" cy="32" r="26" />
         <circle id="ringFg" class="ring-fg" cx="32" cy="32" r="26" />
       </svg>
@@ -56,46 +66,51 @@
 
     <div id="subtitles" aria-live="polite"></div>
     <div id="slats" class="hidden" aria-hidden="true"></div>
-    <div id="breathHint" class="hidden">Зажми <b>B</b> — задержи дыхание</div>
+    <div id="breathHint" class="hidden">Зажми <b>B</b> — задержать дыхание</div>
     <div id="lockHint" class="hidden"></div>
 
-    <section id="screenTitle" class="screen">
+    <section id="screenTitle" class="screen" aria-label="Главное меню">
       <div class="screen-inner title-inner">
-        <p class="eyebrow">хоррор от первого лица</p>
+        <p class="eyebrow">МБОУ «Гимназия № 42» · Красноармейский, 133</p>
         <h1>ДЕЖУРНАЯ<br />НЕ УШЛА</h1>
         <p class="lead">
-          Ночная школа. Свет выключен, а дежурная всё ещё ходит по коридорам.<br />
+          Ночная смена. Свет выключен, двери открыты, а по рекреации кто-то ходит.<br />
           Восстанови четыре щитка и дойди до входной двери.
         </p>
         <ul class="controls">
-          <li><b>WASD</b> — идти</li>
-          <li><b>мышь</b> — смотреть</li>
-          <li><b>Shift</b> — бежать (громко)</li>
-          <li><b>C</b> — красться</li>
-          <li><b>F</b> — фонарь</li>
-          <li><b>Space</b> — чинить щиток</li>
-          <li><b>E</b> — спрятаться / прочитать</li>
-          <li><b>B</b> — задержать дыхание</li>
-          <li><b>Esc</b> — пауза</li>
+          <li><b>WASD</b> идти</li>
+          <li><b>мышь</b> смотреть</li>
+          <li><b>Shift</b> бежать (громко)</li>
+          <li><b>C</b> красться</li>
+          <li><b>F</b> фонарь</li>
+          <li><b>Space</b> чинить щиток</li>
+          <li><b>E</b> спрятаться / читать</li>
+          <li><b>B</b> задержать дыхание</li>
+          <li><b>M</b> звук</li>
+          <li><b>Esc</b> пауза</li>
         </ul>
         <button id="startButton" class="start-button" type="button">Начать смену</button>
-        <p class="hint">Играй в наушниках. Она слышит бег.</p>
+        <p class="hint">Играй в наушниках и в темноте. Она слышит бег.</p>
         <p id="deviceNote" class="hint warn hidden">Нужны клавиатура и мышь — на телефоне не получится.</p>
       </div>
+      <p class="build-mark">ночная смена · корпус Б</p>
     </section>
 
-    <section id="screenPause" class="screen hidden">
-      <div class="screen-inner">
+    <section id="screenPause" class="screen hidden" aria-label="Пауза">
+      <div class="screen-inner pause-inner">
+        <p class="eyebrow">смена приостановлена</p>
         <h2>ПАУЗА</h2>
         <p class="lead">Школа ждёт. Она тоже.</p>
         <button id="resumeButton" class="start-button" type="button">Продолжить</button>
+        <p class="hint">Esc в браузере снимает захват мыши — поэтому смена встаёт на паузу.</p>
       </div>
     </section>
 
     <div id="jumpscare" class="jumpscare" aria-hidden="true"></div>
 
-    <section id="screenDeath" class="screen hidden">
+    <section id="screenDeath" class="screen hidden" aria-label="Смерть">
       <div class="screen-inner death-inner">
+        <p class="eyebrow">смена окончена</p>
         <h2 class="death-title">НЕ ОТКРЫВАЙ ГЛАЗА</h2>
         <p class="lead" id="deathText">Она нашла тебя.</p>
         <p class="hint" id="deathStats"></p>
@@ -104,9 +119,10 @@
       </div>
     </section>
 
-    <section id="screenWin" class="screen hidden">
-      <div class="screen-inner">
-        <h2 class="win-title">СВЕТ ВКЛЮЧЕН</h2>
+    <section id="screenWin" class="screen hidden" aria-label="Победа">
+      <div class="screen-inner win-inner">
+        <p class="eyebrow">питание восстановлено</p>
+        <h2 class="win-title">СВЕТ ВКЛЮЧЁН</h2>
         <p class="lead">
           Дверь за спиной закрылась сама.<br />
           В коридоре стало видно, что ты был здесь не один.
@@ -115,6 +131,10 @@
         <button id="againButton" class="start-button" type="button">Сыграть ещё раз</button>
       </div>
     </section>
+
+    <noscript>
+      <div class="noscript">Для игры нужен JavaScript и поддержка WebGL.</div>
+    </noscript>
 
     <script type="module" src="./src/main.js"></script>
   </body>

@@ -15,6 +15,9 @@ import {
 } from "./world.js";
 import { GameAudio } from "./audio.js";
 import { Enemy, createDutyFigure } from "./enemy.js";
+// [DESIGN] визуальный слой: режиссёр страха и 3D-скример
+import { ScareDirector } from "./scares.js";
+import { JumpScare } from "./jumpscare.js";
 
 /* ============================================================
    «Дежурная не ушла» — 3D-хоррор от первого лица
@@ -119,15 +122,11 @@ const enemy = new Enemy(scene, world);
 
 /* --------------------------- привидение --------------------------- */
 
+// [DESIGN] Модель привидения живёт здесь, а показывает его
+// режиссёр страха (src/scares.js): scares.spawnApparition().
 const ghost = createDutyFigure({ ghost: true });
 ghost.visible = false;
 scene.add(ghost);
-const ghostMats = new Set();
-ghost.traverse((o) => {
-  if (o.isMesh && o.material) ghostMats.add(o.material);
-});
-let ghostTimer = 0;
-let apparition = null;
 
 /* --------------------------- пыль --------------------------- */
 
@@ -196,8 +195,6 @@ let gameState = "title"; // title | play | pause | dead | win
 let lookMode = "lock"; // lock | drag
 let dragging = false;
 let subtitleTimer = 0;
-let nextWhisper = 7;
-let nextEvent = 13;
 let shake = 0;
 let flash = 0;
 let deadTimer = 0;
@@ -212,20 +209,31 @@ let lastTime = performance.now();
 const keys = new Set();
 const pressed = new Set();
 
-/* --------------------------- контент --------------------------- */
+/* --------------------- [DESIGN] страх и скример --------------------- */
+// Монтажные точки: второй агент может менять игру вокруг, но эти
+// три блока должны остаться, иначе пропадут скримеры и события.
 
-const lines = [
-  "Где-то за стеной включился школьный звонок. Но уроков давно нет.",
-  "В динамике шепчет твоё имя, хотя радиорубка заперта.",
-  "На стекле проступает ладонь с внутренней стороны.",
-  "Дежурная считает шаги. Сейчас она сбилась.",
-  "Не беги. Пол помнит каждый звук.",
-  "В методкабинете кто-то перелистывает журнал. Страницы мокрые.",
-  "Свет в третьем коридоре гаснет по одному — как будто кто-то идёт навстречу.",
-  "Шкафчик за спиной медленно открывается. Не оборачивайся.",
-  "Кто-то пишет мелом на доске. Мел сухой, доска мокрая.",
-  "Пахнет мелом и чем-то тёплым, как в больнице."
-];
+const scares = new ScareDirector({
+  world,
+  audio,
+  player,
+  ghost,
+  say: (text, secs) => setMessage(text, secs),
+  fx: {
+    shake: (v) => {
+      shake = Math.max(shake, v);
+    },
+    flash: (v) => {
+      flash = Math.max(flash, v);
+    }
+  }
+});
+scene.add(scares.group);
+
+const jumpscare = new JumpScare(camera);
+
+
+/* --------------------------- контент --------------------------- */
 
 const noteTexts = [
   "График дежурств, ноябрь. В графе «ночь» чужая фамилия — её уволили ещё в мае.",
@@ -268,7 +276,7 @@ function resetGame() {
   const spawn = cellCenter(SPAWN_CELL);
   player.x = spawn.x;
   player.z = spawn.z;
-  player.yaw = Math.PI;
+  player.yaw = 0; // [DESIGN] лицом в вестибюль
   player.pitch = 0;
   player.speed = 0;
   player.noise = 0;
@@ -289,6 +297,8 @@ function resetGame() {
   player.breathTimer = 2.4;
 
   enemy.reset();
+  scares.reset();
+  jumpscare.stop();
   spawnWorldObjects();
   collected = 0;
   notesFound = 0;
@@ -301,11 +311,7 @@ function resetGame() {
   shake = 0;
   flash = 0;
   blackoutTimer = 0;
-  apparition = null;
   ghost.visible = false;
-  ghostTimer = 0;
-  nextWhisper = 7;
-  nextEvent = 13;
   rattleCooldown = 0;
   subtitlesEl.textContent = "";
   slatsEl.classList.add("hidden");
@@ -473,6 +479,7 @@ function killPlayer(reason) {
   shake = 24;
   flash = 0.9;
   audio.scream();
+  jumpscare.start();
   deathText.textContent = reason || "Она нашла тебя.";
   if (document.pointerLockElement === canvas) document.exitPointerLock();
 }
@@ -854,80 +861,22 @@ function hearAtPlayer(strength) {
 /* --------------------------- события и атмосфера --------------------------- */
 
 function handleEvents(dt) {
-  nextWhisper -= dt;
-  nextEvent -= dt;
   rattleCooldown -= dt;
   if (hintTimer > 0) {
     hintTimer -= dt;
     if (hintTimer <= 0) lockHintEl.classList.add("hidden");
   }
 
-  if (nextWhisper <= 0) {
-    nextWhisper = 8 + Math.random() * 11 - collected;
-    setMessage(lines[Math.floor(Math.random() * lines.length)], 4.2);
-    audio.whisper();
-  }
-
-  if (nextEvent <= 0) {
-    nextEvent = 13 + Math.random() * 14;
-    const roll = Math.random();
-    if (roll < 0.3) {
-      spawnApparition();
-    } else if (roll < 0.5) {
-      blackoutTimer = 0.55 + Math.random() * 0.5;
-      audio.thud();
-      shake = 6;
-      flash = 0.35;
-      setMessage("Свет мигнул. Кто-то включил его раньше тебя.", 2.6);
-    } else if (roll < 0.7) {
-      audio.thud();
-      shake = 5 + collected;
-      setMessage("Где-то хлопнула дверь.", 2.2);
-    } else if (roll < 0.85) {
-      audio.flicker();
-      flickerTimer = 0.7;
-      if (player.flashOn) setMessage("Фонарь мигнул. Проверь батарейку.", 2.2);
-    }
-    // Иногда она слышит случайный звук рядом с тобой.
-    if (Math.random() < 0.62) {
-      const place = randomOpenNear(player.x, player.z, 3, 9);
-      if (place) enemy.hunt(place.x, place.z, 2.2);
-    }
-  }
+  // [DESIGN] все случайные события — в src/scares.js
+  scares.update(dt, { collected });
 
   if (blackoutTimer > 0) blackoutTimer -= dt;
   if (flickerTimer > 0) flickerTimer -= dt;
 }
 
 function spawnApparition() {
-  const place = randomOpenNear(player.x, player.z, 6.5, 14);
-  if (!place) return;
-  apparition = { x: place.x, z: place.z, timer: 1.5 + Math.random() * 0.8, total: 0 };
-  apparition.total = apparition.timer;
-  ghost.visible = true;
-  ghost.position.set(place.x, 0, place.z);
-  ghost.rotation.y = Math.atan2(-(player.x - place.x), -(player.z - place.z));
-  audio.stinger();
-  shake = Math.max(shake, 5);
-  flash = Math.max(flash, 0.3);
-  return apparition;
-}
-
-function updateGhost(dt) {
-  if (!apparition) {
-    ghost.visible = false;
-    return;
-  }
-  apparition.timer -= dt;
-  if (apparition.timer <= 0) {
-    apparition = null;
-    ghost.visible = false;
-    return;
-  }
-  const t = apparition.timer / apparition.total;
-  const alpha = Math.sin(Math.min(1, t) * Math.PI); // плавно появляется и гаснет
-  for (const m of ghostMats) m.opacity = alpha * 0.72;
-  ghost.position.y = Math.sin(performance.now() * 0.002) * 0.06;
+  // [DESIGN] оставлено для отладки и __lh
+  return scares.spawnApparition();
 }
 
 /* --------------------------- свет, лампы, щитки --------------------------- */
@@ -939,6 +888,8 @@ function updateLights(dt, time) {
   for (const lamp of world.lamps) {
     lamp.powered = fuses[lamp.fuseIndex]?.done || allDone;
     let target = lamp.powered && blackoutTimer <= 0 ? 1 : 0;
+    // [DESIGN] волна погасшего света из scares.js
+    if (lamp.darkUntil && lamp.darkUntil > time) target = 0;
     if (target > 0) {
       // Лёгкое мерцание подмигивает.
       const s = Math.sin(time * 2.7 + lamp.flickerSeed * 9.1);
@@ -1081,6 +1032,7 @@ function updateDead(dt) {
   player.pitch += (targetPitch - player.pitch) * k;
   player.panic = Math.min(1, player.panic + dt * 0.5);
 
+  jumpscare.update(dt);
   if (deadTimer > 0.42 && !jumpscareEl.classList.contains("active")) {
     jumpscareEl.classList.add("active");
   }
@@ -1114,7 +1066,7 @@ function update(dt, time) {
 function updateInner(dt, time) {
   if (gameState === "title") {
     // Медленный обзор за титульным экраном.
-    player.yaw = Math.PI + Math.sin(time * 0.12) * 0.35;
+    player.yaw = Math.sin(time * 0.12) * 0.35; // [DESIGN]
     player.x = cellCenter(SPAWN_CELL).x;
     player.z = cellCenter(SPAWN_CELL).z;
     updateCameraAndFx(dt, time);
@@ -1153,7 +1105,6 @@ function updateInner(dt, time) {
   });
 
   handleEvents(dt);
-  updateGhost(dt);
   updateLights(dt, time);
   updateFuseVisuals(time);
   updateDust(dt);
@@ -1225,7 +1176,7 @@ window.__lh = {
     return ghost;
   },
   get apparition() {
-    return apparition;
+    return scares.apparition;
   },
   teleport(cx, cy) {
     const c = cellCenter({ x: cx, y: cy });
@@ -1256,5 +1207,6 @@ window.__lh = {
   kill: killPlayer,
   win: winGame,
   spawnApparition,
+  scares,
   setMessage
 };

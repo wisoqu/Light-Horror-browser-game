@@ -1,77 +1,54 @@
 import * as THREE from "three";
+import {
+  TILE,
+  WALL_H,
+  MAP_W,
+  MAP_H,
+  MAP_ROWS,
+  ROOMS,
+  DOORS,
+  HALL_OPENING,
+  SPAWN_CELL,
+  EXIT_CELL,
+  FUSE_CELLS,
+  LOCKER_CELLS,
+  PATROL_CELLS,
+  NOTE_SPOTS,
+  BATTERY_SPOTS,
+  roomAtCell,
+  roomById,
+  cellAt,
+  cellCenter,
+  isWallCell
+} from "./map42.js";
+import { createSchoolMaterials, ROOM_FLOOR, ROOM_WALL, FLOOR_UV_SCALE } from "./textures.js";
+import * as Props from "./props.js";
+import { Kit, mergeGeometries } from "./props.js";
+
+export {
+  TILE,
+  WALL_H,
+  MAP_W,
+  MAP_H,
+  MAP_ROWS,
+  SPAWN_CELL,
+  EXIT_CELL,
+  FUSE_CELLS,
+  LOCKER_CELLS,
+  PATROL_CELLS,
+  NOTE_SPOTS,
+  BATTERY_SPOTS,
+  cellAt,
+  cellCenter,
+  isWallCell,
+  roomAtCell,
+  roomById
+};
 
 /* ============================================================
-   Мир школы: карта, геометрия, текстуры, коллизии, поиск пути
+   Мир школы: геометрия, свет, коллизии, поиск пути.
+   Логика навигации не менялась — менялось только «мясо».
    ============================================================ */
-
-export const TILE = 2.2;
-export const WALL_H = 3.0;
-
-// Карта родом из 2D-версии — та же планировка, теперь в пространстве.
-export const MAP_ROWS = [
-  "########################",
-  "#S.....................#",
-  "#..####....#####....#..#",
-  "#..#..#....#...#....#..#",
-  "#..#..######.#.####.#..#",
-  "#..#..........#.....#..#",
-  "#..######..##########..#",
-  "#.......#..............#",
-  "#.#####.#.############.#",
-  "#.#.....#..............#",
-  "#.#.##########..######.#",
-  "#.#............#.....#.#",
-  "#.#.########..######.#.#",
-  "#.#......#....#......#.#",
-  "#.######.#.####..####..#",
-  "#....................F.#",
-  "########################"
-].map((row) => row.padEnd(24, "#"));
-
-export const MAP_H = MAP_ROWS.length;
-export const MAP_W = MAP_ROWS[0].length;
-
-export const SPAWN_CELL = { x: 1, y: 1 };
-export const EXIT_CELL = { x: 1, y: 1 };
-
-export const FUSE_CELLS = [
-  { x: 20, y: 1, label: "щиток в кабинете труда" },
-  { x: 3, y: 9, label: "щиток в раздевалке" },
-  { x: 12, y: 13, label: "щиток у медкабинета" },
-  { x: 21, y: 15, label: "главный рубильник" }
-];
-
-export const LOCKER_CELLS = [
-  { x: 5, y: 5 },
-  { x: 17, y: 3 },
-  { x: 7, y: 13 },
-  { x: 17, y: 11 }
-];
-
-export const PATROL_CELLS = [
-  { x: 21, y: 14 },
-  { x: 11, y: 15 },
-  { x: 11, y: 9 },
-  { x: 3, y: 9 },
-  { x: 2, y: 3 },
-  { x: 13, y: 3 },
-  { x: 20, y: 1 }
-];
-
-export const NOTE_SPOTS = [
-  { x: 2, y: 7 },
-  { x: 13, y: 1 },
-  { x: 20, y: 13 },
-  { x: 6, y: 5 },
-  { x: 10, y: 15 }
-];
-
-export const BATTERY_SPOTS = [
-  { x: 21, y: 7 },
-  { x: 9, y: 11 },
-  { x: 4, y: 15 },
-  { x: 16, y: 9 }
-];
 
 const DIRS = [
   { x: 1, y: 0 },
@@ -79,19 +56,6 @@ const DIRS = [
   { x: 0, y: 1 },
   { x: 0, y: -1 }
 ];
-
-export function cellAt(x, z) {
-  return { x: Math.floor(x / TILE), y: Math.floor(z / TILE) };
-}
-
-export function cellCenter(cell) {
-  return { x: (cell.x + 0.5) * TILE, z: (cell.y + 0.5) * TILE };
-}
-
-export function isWallCell(cx, cy) {
-  if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return true;
-  return MAP_ROWS[cy][cx] === "#";
-}
 
 export function isWallWorld(x, z) {
   return isWallCell(Math.floor(x / TILE), Math.floor(z / TILE));
@@ -143,7 +107,7 @@ export function nextStepWorld(fromX, fromZ, toX, toZ) {
   return cellCenter(current);
 }
 
-/** Кратчайшее расстояние между клетками (для выбора ближайшей точки). */
+/** Кратчайшее расстояние между клетками. */
 export function bfsDistance(fromCell, toCell) {
   if (fromCell.x === toCell.x && fromCell.y === toCell.y) return 0;
   const key = (x, y) => `${x},${y}`;
@@ -176,304 +140,395 @@ export function randomOpenNear(x, z, minDist, maxDist) {
   return null;
 }
 
-/* --------------------------- текстуры --------------------------- */
+/* --------------------------- утилиты --------------------------- */
 
-function makeTexture(w, h, draw, repeatX = 1, repeatY = 1) {
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const g = canvas.getContext("2d");
-  draw(g, w, h);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(repeatX, repeatY);
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function speckle(g, w, h, count, color, maxR) {
-  for (let i = 0; i < count; i += 1) {
-    g.fillStyle = color;
-    g.globalAlpha = 0.03 + Math.random() * 0.1;
-    g.beginPath();
-    g.arc(Math.random() * w, Math.random() * h, 1 + Math.random() * maxR, 0, Math.PI * 2);
-    g.fill();
-  }
-  g.globalAlpha = 1;
-}
-
-function wallTexture() {
-  return makeTexture(256, 256, (g, w, h) => {
-    // Верх — бежевая штукатурка, низ — institutional зелёная краска.
-    g.fillStyle = "#9d957f";
-    g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 260, "#6d6754", 3);
-
-    const paintH = h * 0.58;
-    g.fillStyle = "#4a5c48";
-    g.fillRect(0, h - paintH, w, paintH);
-    speckle(g, w, paintH, 200, "#2f3c30", 3);
-
-    // Полоса раздела и плинтус.
-    g.fillStyle = "#39473a";
-    g.fillRect(0, h - paintH - 6, w, 6);
-    g.fillStyle = "#232b24";
-    g.fillRect(0, h - 14, w, 14);
-
-    // Потёртости и грязь у низа.
-    for (let i = 0; i < 26; i += 1) {
-      g.fillStyle = `rgba(20, 24, 20, ${0.05 + Math.random() * 0.16})`;
-      const bw = 6 + Math.random() * 40;
-      g.fillRect(Math.random() * w, h - paintH + Math.random() * paintH, bw, 3 + Math.random() * 16);
-    }
-    // Трещины сверху.
-    g.strokeStyle = "rgba(60, 55, 45, 0.35)";
-    for (let i = 0; i < 5; i += 1) {
-      g.beginPath();
-      let x = Math.random() * w;
-      let y = Math.random() * (h - paintH);
-      g.moveTo(x, y);
-      for (let s = 0; s < 5; s += 1) {
-        x += (Math.random() - 0.5) * 26;
-        y += 6 + Math.random() * 16;
-        g.lineTo(x, y);
-      }
-      g.stroke();
-    }
-  });
-}
-
-function floorTexture() {
-  return makeTexture(256, 256, (g, w, h) => {
-    g.fillStyle = "#54514a";
-    g.fillRect(0, 0, w, h);
-    // Линолеум в клетку.
-    for (let y = 0; y < 4; y += 1) {
-      for (let x = 0; x < 4; x += 1) {
-        g.fillStyle = (x + y) % 2 ? "#575449" : "#4b4842";
-        g.fillRect(x * 64, y * 64, 64, 64);
-      }
-    }
-    g.strokeStyle = "rgba(20, 20, 18, 0.5)";
-    g.lineWidth = 2;
-    for (let i = 0; i <= 4; i += 1) {
-      g.beginPath();
-      g.moveTo(i * 64, 0);
-      g.lineTo(i * 64, h);
-      g.moveTo(0, i * 64);
-      g.lineTo(w, i * 64);
-      g.stroke();
-    }
-    speckle(g, w, h, 340, "#2c2a26", 4);
-    // Пятна.
-    for (let i = 0; i < 14; i += 1) {
-      g.fillStyle = `rgba(30, 28, 24, ${0.08 + Math.random() * 0.18})`;
-      g.beginPath();
-      g.ellipse(Math.random() * w, Math.random() * h, 6 + Math.random() * 30, 4 + Math.random() * 18, Math.random() * 3, 0, Math.PI * 2);
-      g.fill();
-    }
-  }, MAP_W * 2, MAP_H * 2);
-}
-
-function ceilingTexture() {
-  return makeTexture(256, 256, (g, w, h) => {
-    g.fillStyle = "#6d6a60";
-    g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 300, "#4d4a42", 5);
-    g.strokeStyle = "rgba(40, 38, 34, 0.6)";
-    g.lineWidth = 3;
-    for (let i = 0; i <= 2; i += 1) {
-      g.beginPath();
-      g.moveTo(i * 128, 0);
-      g.lineTo(i * 128, h);
-      g.moveTo(0, i * 128);
-      g.lineTo(w, i * 128);
-      g.stroke();
-    }
-    // Подтёки ржавчины.
-    for (let i = 0; i < 8; i += 1) {
-      g.fillStyle = `rgba(92, 62, 34, ${0.06 + Math.random() * 0.12})`;
-      g.beginPath();
-      g.ellipse(Math.random() * w, Math.random() * h, 8 + Math.random() * 26, 5 + Math.random() * 14, 0, 0, Math.PI * 2);
-      g.fill();
-    }
-  }, MAP_W, MAP_H);
-}
-
-function noticeTexture() {
-  return makeTexture(128, 160, (g, w, h) => {
-    g.fillStyle = "#8b8471";
-    g.fillRect(0, 0, w, h);
-    g.fillStyle = "#6f6959";
-    g.fillRect(6, 6, w - 12, h - 12);
-    // «Текст» объявлений.
-    for (let i = 0; i < 9; i += 1) {
-      g.fillStyle = `rgba(38, 35, 30, ${0.5 + Math.random() * 0.3})`;
-      const lw = 30 + Math.random() * 60;
-      g.fillRect(16 + Math.random() * 14, 22 + i * 14, lw, 4);
-    }
-    g.fillStyle = "rgba(120, 30, 30, 0.55)";
-    g.fillRect(34, 10, w - 68, 7);
-    speckle(g, w, h, 70, "#4d4738", 2);
-  });
-}
-
-function paperTexture() {
-  return makeTexture(96, 128, (g, w, h) => {
-    g.fillStyle = "#cfc6ad";
-    g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 11; i += 1) {
-      g.fillStyle = `rgba(50, 46, 38, ${0.55 + Math.random() * 0.3})`;
-      g.fillRect(12, 14 + i * 9, 26 + Math.random() * 46, 3);
-    }
-    g.fillStyle = "rgba(110, 30, 30, 0.7)";
-    g.fillRect(20, 6, w - 40, 5);
-  });
-}
-
-/* --------------------------- структуры --------------------------- */
-
-function hash(x, y) {
-  let n = x * 374761393 + y * 668265263;
-  n = (n ^ (n >> 13)) * 1274126177;
-  return Math.abs(n ^ (n >> 16));
-}
-
-/** Сторона стены, к которой примыкает клетка (детали вешаем на неё). */
-function wallSideFor(cell) {
-  const sides = [
-    { nx: 0, ny: -1, rotY: 0 },
-    { nx: 0, ny: 1, rotY: Math.PI },
-    { nx: -1, ny: 0, rotY: Math.PI / 2 },
-    { nx: 1, ny: 0, rotY: -Math.PI / 2 }
-  ];
-  // Приоритет: север, юг, запад, восток — детерминированно.
-  for (const s of sides) {
-    if (isWallCell(cell.x + s.nx, cell.y + s.ny)) {
-      const cx = (cell.x + 0.5 + s.nx * 0.5) * TILE;
-      const cz = (cell.y + 0.5 + s.ny * 0.5) * TILE;
-      return { x: cx, z: cz, rotY: s.rotY };
-    }
-  }
-  return { x: (cell.x + 0.5) * TILE, z: (cell.y + 0.5) * TILE, rotY: 0 };
-}
+// Поворот, при котором локальный +Z смотрит В КОМНАТУ.
+// north — стена сверху, комната снизу (+Z)  → 0
+const SIDE_ROT = { north: 0, south: Math.PI, west: Math.PI / 2, east: -Math.PI / 2 };
+// Поворот «лицом в коридор» (для табличек над дверью).
+const SIDE_ROT_OUT = { north: Math.PI, south: 0, west: -Math.PI / 2, east: Math.PI / 2 };
 
 /**
- * Строит сцену школы. Возвращает:
- * colliders[], lamps[], fuseAnchors[], lockerAnchors[], exitAnchor,
- * noteAnchors[], batteryAnchors[], materials (для мигания), group
+ * Точка на стене рядом с клеткой.
+ * side — с какой стороны стена. Возвращает мировые координаты
+ * центра стены и поворот, при котором +Z смотрит в комнату.
  */
-export function buildSchool() {
-  const group = new THREE.Group();
-  const colliders = [];
+function wallSpot(cell, side) {
+  const cx = (cell.x + 0.5) * TILE;
+  const cz = (cell.y + 0.5) * TILE;
+  if (side === "north") return { x: cx, z: cell.y * TILE, rotY: SIDE_ROT.north, nx: 0, nz: 1 };
+  if (side === "south") return { x: cx, z: (cell.y + 1) * TILE, rotY: SIDE_ROT.south, nx: 0, nz: -1 };
+  if (side === "west") return { x: cell.x * TILE, z: cz, rotY: SIDE_ROT.west, nx: 1, nz: 0 };
+  return { x: (cell.x + 1) * TILE, z: cz, rotY: SIDE_ROT.east, nx: -1, nz: 0 };
+}
 
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTexture(), roughness: 0.92, metalness: 0.02 });
-  const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture(), roughness: 0.65, metalness: 0.04 });
-  const ceilMat = new THREE.MeshStandardMaterial({ map: ceilingTexture(), roughness: 0.96, metalness: 0 });
+/** Дополнительная AABB-коллизия. */
+function addCollider(colliders, cx, cz, w, d) {
+  colliders.push({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2 });
+}
 
-  // Пол и потолок.
-  const planeGeo = new THREE.PlaneGeometry(MAP_W * TILE, MAP_H * TILE);
-  const floor = new THREE.Mesh(planeGeo, floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set((MAP_W * TILE) / 2, 0, (MAP_H * TILE) / 2);
-  floor.receiveShadow = true;
-  group.add(floor);
+function roomBounds(room) {
+  const [x0, y0, x1, y1] = room.rects[0];
+  return {
+    x0,
+    y0,
+    x1,
+    y1,
+    left: x0 * TILE,
+    right: (x1 + 1) * TILE,
+    top: y0 * TILE,
+    bottom: (y1 + 1) * TILE,
+    cx: ((x0 + x1 + 1) / 2) * TILE,
+    cz: ((y0 + y1 + 1) / 2) * TILE,
+    w: (x1 - x0 + 1) * TILE,
+    d: (y1 - y0 + 1) * TILE
+  };
+}
 
-  const ceil = new THREE.Mesh(planeGeo, ceilMat);
-  ceil.rotation.x = Math.PI / 2;
-  ceil.position.set((MAP_W * TILE) / 2, WALL_H, (MAP_H * TILE) / 2);
-  ceil.receiveShadow = true;
-  group.add(ceil);
+/* --------------------------- пол и потолок --------------------------- */
 
-  // Стены одним InstancedMesh.
-  const wallCells = [];
+function buildFloors(materials) {
+  const buckets = new Map();
   for (let y = 0; y < MAP_H; y += 1) {
     for (let x = 0; x < MAP_W; x += 1) {
-      if (MAP_ROWS[y][x] === "#") wallCells.push({ x, y });
+      if (isWallCell(x, y)) continue;
+      const roomId = roomAtCell(x, y);
+      const key = ROOM_FLOOR[roomId] || "floorLinoleum";
+      const scale = FLOOR_UV_SCALE[key] || 4;
+      const geo = new THREE.PlaneGeometry(TILE, TILE);
+      geo.rotateX(-Math.PI / 2);
+      geo.translate((x + 0.5) * TILE, 0, (y + 0.5) * TILE);
+      const pos = geo.attributes.position;
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < pos.count; i += 1) {
+        uv.setXY(i, pos.getX(i) / scale, pos.getZ(i) / scale);
+      }
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(geo);
     }
   }
-  const wallGeo = new THREE.BoxGeometry(TILE, WALL_H, TILE);
-  const walls = new THREE.InstancedMesh(wallGeo, wallMat, wallCells.length);
-  walls.castShadow = true;
-  walls.receiveShadow = true;
+  const group = new THREE.Group();
+  for (const [key, geos] of buckets) {
+    const mesh = new THREE.Mesh(mergeGeometries(geos), materials[key]);
+    mesh.receiveShadow = true;
+    mesh.name = `floor:${key}`;
+    group.add(mesh);
+    for (const g of geos) g.dispose();
+  }
+  return group;
+}
+
+function buildCeiling(materials) {
+  const map = materials.ceiling.map;
+  map.repeat.set((MAP_W * TILE) / 4.4, (MAP_H * TILE) / 4.4);
+  const geo = new THREE.PlaneGeometry(MAP_W * TILE, MAP_H * TILE);
+  const mesh = new THREE.Mesh(geo, materials.ceiling);
+  mesh.rotation.x = Math.PI / 2;
+  mesh.position.set((MAP_W * TILE) / 2, WALL_H, (MAP_H * TILE) / 2);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/* --------------------------- стены --------------------------- */
+
+function buildWalls(materials, colliders) {
+  const buckets = new Map();
+  const panelGeo = new THREE.BoxGeometry(TILE, WALL_H, 0.22);
+
+  for (let y = 0; y < MAP_H; y += 1) {
+    for (let x = 0; x < MAP_W; x += 1) {
+      if (!isWallCell(x, y)) continue;
+      for (const dir of DIRS) {
+        const nx = x + dir.x;
+        const ny = y + dir.y;
+        if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+        if (isWallCell(nx, ny)) continue;
+        const roomId = roomAtCell(nx, ny);
+        const key = ROOM_WALL[roomId] || "corridorWall";
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push({
+          x: (x + 0.5) * TILE + (dir.x * TILE) / 2,
+          z: (y + 0.5) * TILE + (dir.y * TILE) / 2,
+          rotY: Math.atan2(dir.x, dir.y)
+        });
+      }
+    }
+  }
+
+  const group = new THREE.Group();
   const dummy = new THREE.Object3D();
   const tint = new THREE.Color();
-  wallCells.forEach((cell, i) => {
-    dummy.position.set((cell.x + 0.5) * TILE, WALL_H / 2, (cell.y + 0.5) * TILE);
-    dummy.updateMatrix();
-    walls.setMatrixAt(i, dummy.matrix);
-    const v = 0.86 + (hash(cell.x, cell.y) % 28) / 100;
-    tint.setRGB(v, v, v * 0.98);
-    walls.setColorAt(i, tint);
+  for (const [key, panels] of buckets) {
+    const mesh = new THREE.InstancedMesh(panelGeo, materials[key], panels.length);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = `walls:${key}`;
+    panels.forEach((p, i) => {
+      dummy.position.set(p.x, WALL_H / 2, p.z);
+      dummy.rotation.set(0, p.rotY, 0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      const v = 0.9 + Math.random() * 0.12;
+      tint.setRGB(v, v, v * 0.99);
+      mesh.setColorAt(i, tint);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    group.add(mesh);
+  }
+  return group;
+}
+
+/* --------------------------- окна --------------------------- */
+
+function buildWindows(materials, colliders) {
+  const kit = new Kit();
+  const moonMat = new THREE.MeshBasicMaterial({
+    color: 0x8fb4d6,
+    transparent: true,
+    opacity: 0.075,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
   });
-  walls.instanceMatrix.needsUpdate = true;
-  if (walls.instanceColor) walls.instanceColor.needsUpdate = true;
-  group.add(walls);
+  const moonGroup = new THREE.Group();
+  const anchors = [];
 
-  // Декор: объявления на стенах.
-  const noticeMat = new THREE.MeshStandardMaterial({ map: noticeTexture(), roughness: 0.9 });
-  const noticeGeo = new THREE.PlaneGeometry(0.62, 0.78);
-  for (let y = 1; y < MAP_H - 1; y += 1) {
-    for (let x = 1; x < MAP_W - 1; x += 1) {
-      if (MAP_ROWS[y][x] === "#") continue;
-      const h = hash(x, y);
-      if (h % 9 !== 0) continue;
-      const side = wallSideFor({ x, y });
-      const notice = new THREE.Mesh(noticeGeo, noticeMat);
-      const off = 0.03;
-      notice.position.set(side.x + Math.sin(side.rotY) * off, 1.62, side.z + Math.cos(side.rotY) * off);
-      notice.rotation.y = side.rotY;
-      notice.receiveShadow = true;
-      group.add(notice);
+  for (const room of ROOMS) {
+    if (!room.window) continue;
+    const b = roomBounds(room);
+    const side = room.window;
+    const count = Math.max(2, Math.round(b.w / 4.4));
+    const step = b.w / count;
+    // В вестибюле окна только по краям — по центру входная дверь.
+    const xs = room.id === "hall"
+      ? [b.left + 1.5, b.right - 1.5]
+      : Array.from({ length: count }, (_, i) => b.left + step * (i + 0.5));
+
+    for (let i = 0; i < xs.length; i += 1) {
+      const wx = xs[i];
+      const wz = side === "north" ? TILE : (MAP_H - 1) * TILE;
+      const ry = side === "north" ? 0 : Math.PI;
+
+      kit.begin(wx, wz, ry);
+      // Рама и подоконник.
+      kit.box("white", 1.9, 0.08, 0.16, 0, 0.92, 0.08);
+      kit.box("white", 1.9, 0.08, 0.16, 0, 2.5, 0.08);
+      kit.box("white", 0.09, 1.66, 0.16, -0.9, 1.71, 0.08);
+      kit.box("white", 0.09, 1.66, 0.16, 0.9, 1.71, 0.08);
+      kit.box("white", 0.05, 1.58, 0.1, 0, 1.71, 0.08);
+      kit.box("white", 1.9, 0.05, 0.1, 0, 1.71, 0.08);
+      kit.plane("glass", 1.78, 1.58, 0, 1.71, 0.02);
+      // Форточка.
+      kit.box("white", 0.62, 0.04, 0.08, 0.55, 2.18, 0.1);
+      // Подоконник изнутри.
+      kit.box("woodLight", 2.0, 0.06, 0.3, 0, 0.88, 0.19);
+      kit.end();
+
+      anchors.push({ x: wx, z: wz, rotY: ry });
+
+      // Лунный свет на полу — просто светлое пятно, без источника.
+      const moonGeo = new THREE.PlaneGeometry(2.0, 3.0);
+      const moon = new THREE.Mesh(moonGeo, moonMat);
+      moon.rotation.x = -Math.PI / 2;
+      moon.rotation.z = ry;
+      moon.position.set(wx, 0.015, wz + (side === "north" ? 1.6 : -1.6));
+      moonGroup.add(moon);
     }
   }
 
-  /* ------------------------ лампы ------------------------ */
+  // Радиаторы под окнами.
+  for (const room of ROOMS) {
+    if (!room.window) continue;
+    const b = roomBounds(room);
+    const side = room.window;
+    const z = side === "north" ? TILE + 0.18 : (MAP_H - 1) * TILE - 0.18;
+    const ry = side === "north" ? 0 : Math.PI;
+    const count = Math.max(2, Math.round(b.w / 4.4));
+    const xs = room.id === "hall"
+      ? [b.left + 1.5, b.right - 1.5]
+      : Array.from({ length: count }, (_, i) => b.left + (b.w / count) * (i + 0.5));
+    for (const wx of xs) {
+      Props.radiator(kit, wx, z, ry, 1.5);
+      addCollider(colliders, wx, z + (side === "north" ? 0.1 : -0.1), 1.6, 0.35);
+    }
+  }
+
+  const group = kit.build(materials, { castShadow: false, receiveShadow: true });
+  group.add(moonGroup);
+  return { group, anchors };
+}
+
+/* --------------------------- двери --------------------------- */
+
+function makePlateTexture(label) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const g = canvas.getContext("2d");
+  g.fillStyle = "#2b3238";
+  g.fillRect(0, 0, 256, 64);
+  g.strokeStyle = "rgba(230, 225, 210, 0.35)";
+  g.lineWidth = 2;
+  g.strokeRect(3, 3, 250, 58);
+  g.fillStyle = "#ded6c2";
+  g.font = "bold 26px Arial";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(label, 128, 33);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function buildDoors(materials, colliders) {
+  const kit = new Kit();
+  const plates = new THREE.Group();
+
+  for (const door of DOORS) {
+    const cx = (door.x + 0.5) * TILE;
+    const cz = (door.y + 0.5) * TILE;
+    // Локальный +Z смотрит в комнату.
+    const ry = door.side === "north" ? Math.PI : door.side === "south" ? 0 : door.side === "east" ? -Math.PI / 2 : Math.PI / 2;
+    const horizontal = door.axis === "h";
+
+    kit.begin(cx, cz, ry);
+    // Закладки по бокам проёма: превращают клетку стены в узкую дверь.
+    kit.box("corridorWall", 0.5, WALL_H, 0.34, -0.85, WALL_H / 2, 0);
+    kit.box("corridorWall", 0.5, WALL_H, 0.34, 0.85, WALL_H / 2, 0);
+    // Перемычка.
+    kit.box("corridorWall", 1.2, WALL_H - 2.1, 0.34, 0, (WALL_H + 2.1) / 2, 0);
+    // Наличник.
+    kit.box("woodDark", 0.1, 2.14, 0.42, -0.62, 1.07, 0);
+    kit.box("woodDark", 0.1, 2.14, 0.42, 0.62, 1.07, 0);
+    kit.box("woodDark", 1.34, 0.1, 0.42, 0, 2.16, 0);
+    // Порог.
+    kit.box("metalDark", 1.2, 0.03, 0.45, 0, 0.015, 0);
+
+    // Полотно, распахнутое в комнату почти под 100°.
+    const theta = (100 * Math.PI) / 180;
+    const leafW = 1.08;
+    const hinge = -0.56;
+    const lx = hinge + (leafW / 2) * Math.cos(theta);
+    const lz = (leafW / 2) * Math.sin(theta);
+    kit.add("wood", new THREE.BoxGeometry(leafW, 2.02, 0.05), {
+      pos: [lx, 1.02, lz],
+      rot: [0, -theta, 0]
+    });
+    // Ручка.
+    kit.add("metal", new THREE.SphereGeometry(0.035, 8, 8), {
+      pos: [hinge + leafW * 0.86 * Math.cos(theta), 1.02, lz + 0.06]
+    });
+    kit.end();
+
+    // Табличка над дверью со стороны коридора.
+    if (door.label) {
+      const plate = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.0, 0.26),
+        new THREE.MeshBasicMaterial({ map: makePlateTexture(door.label) })
+      );
+      const off = 0.19;
+      const dirZ = door.side === "north" ? 1 : door.side === "south" ? -1 : 0;
+      const dirX = door.side === "east" ? -1 : door.side === "west" ? 1 : 0;
+      plate.position.set(cx + dirX * off, 2.34, cz + dirZ * off);
+      plate.rotation.y = SIDE_ROT_OUT[door.side] ?? 0;
+      plates.add(plate);
+    }
+
+    // Коллизии боковых закладок.
+    if (horizontal) {
+      addCollider(colliders, cx - 0.85, cz, 0.52, 0.4);
+      addCollider(colliders, cx + 0.85, cz, 0.52, 0.4);
+    } else {
+      addCollider(colliders, cx, cz - 0.85, 0.4, 0.52);
+      addCollider(colliders, cx, cz + 0.85, 0.4, 0.52);
+    }
+  }
+
+  // Широкая арка в вестибюль: перемычка над проёмом и колонны по краям.
+  for (const cell of HALL_OPENING) {
+    kit.begin((cell.x + 0.5) * TILE, (cell.y + 0.5) * TILE, 0);
+    kit.box("hallWall", TILE, WALL_H - 2.5, 0.34, 0, (WALL_H + 2.5) / 2, 0);
+    kit.end();
+  }
+  if (HALL_OPENING.length) {
+    const first = HALL_OPENING[0];
+    const last = HALL_OPENING[HALL_OPENING.length - 1];
+    for (const cell of [first, last]) {
+      const cx = (cell.x + 0.5) * TILE + (cell === first ? -TILE / 2 : TILE / 2);
+      kit.begin(cx, (cell.y + 0.5) * TILE, 0);
+      kit.box("hallWall", 0.4, 2.5, 0.34, 0, 1.25, 0);
+      kit.box("woodDark", 0.5, 0.12, 0.4, 0, 2.56, 0);
+      kit.end();
+    }
+  }
+
+  const group = kit.build(materials);
+  group.add(plates);
+  return group;
+}
+
+/* --------------------------- лампы --------------------------- */
+
+function lampCells() {
+  const cells = [];
+  // Рекреация: каждые три клетки.
+  for (let x = 2; x <= 29; x += 3) cells.push({ x, y: 7 });
+  for (let x = 3; x <= 29; x += 3) cells.push({ x, y: 8 });
+
+  for (const room of ROOMS) {
+    if (room.id === "corridor") continue;
+    const b = roomBounds(room);
+    const cols = Math.max(1, Math.round(b.w / 5.5));
+    const rows = Math.max(1, Math.round(b.d / 5.5));
+    for (let i = 0; i < cols; i += 1) {
+      for (let j = 0; j < rows; j += 1) {
+        const x = b.x0 + ((i + 0.5) * (b.x1 - b.x0 + 1)) / cols;
+        const y = b.y0 + ((j + 0.5) * (b.y1 - b.y0 + 1)) / rows;
+        cells.push({ x: Math.floor(x), y: Math.floor(y) });
+      }
+    }
+  }
+  return cells;
+}
+
+function buildLamps(materials) {
+  const cells = lampCells();
   const lamps = [];
-  for (let y = 1; y < MAP_H - 1; y += 1) {
-    for (let x = 1; x < MAP_W - 1; x += 1) {
-      if (MAP_ROWS[y][x] === "#") continue;
-      if (hash(x, y) % 5 !== 0) continue;
-      if (lamps.length >= 46) break;
-      lamps.push({
-        x: (x + 0.5) * TILE,
-        z: (y + 0.5) * TILE,
-        cell: { x, y },
-        powered: false,
-        lit: 0,
-        flickerSeed: Math.random() * 100
-      });
-    }
-  }
-
-  // Корпуса ламп — статичные, светящиеся трубки — InstancedMesh с instanceColor.
-  const lampBodyGeo = new THREE.BoxGeometry(1.15, 0.09, 0.34);
-  const lampBodyMat = new THREE.MeshStandardMaterial({ color: 0x3a3d40, roughness: 0.7, metalness: 0.4 });
-  const lampBodies = new THREE.InstancedMesh(lampBodyGeo, lampBodyMat, lamps.length);
-
-  const tubeGeo = new THREE.BoxGeometry(1.0, 0.05, 0.1);
+  const lampBodyGeo = new THREE.BoxGeometry(1.24, 0.1, 0.4);
+  const bodies = new THREE.InstancedMesh(lampBodyGeo, materials.metal, cells.length);
+  const tubeGeo = new THREE.BoxGeometry(1.06, 0.05, 0.12);
   const tubeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const tubes = new THREE.InstancedMesh(tubeGeo, tubeMat, lamps.length);
-  tubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(lamps.length * 3), 3);
+  const tubes = new THREE.InstancedMesh(tubeGeo, tubeMat, cells.length);
+  tubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cells.length * 3), 3);
 
-  lamps.forEach((lamp, i) => {
-    dummy.position.set(lamp.x, WALL_H - 0.12, lamp.z);
+  const dummy = new THREE.Object3D();
+  cells.forEach((cell, i) => {
+    const x = (cell.x + 0.5) * TILE;
+    const z = (cell.y + 0.5) * TILE;
+    dummy.position.set(x, WALL_H - 0.07, z);
     dummy.rotation.set(0, 0, 0);
     dummy.updateMatrix();
-    lampBodies.setMatrixAt(i, dummy.matrix);
-    dummy.position.y = WALL_H - 0.17;
+    bodies.setMatrixAt(i, dummy.matrix);
+    dummy.position.y = WALL_H - 0.12;
     dummy.updateMatrix();
     tubes.setMatrixAt(i, dummy.matrix);
     tubes.setColorAt(i, new THREE.Color(0, 0, 0));
-    lamp.index = i;
+    lamps.push({
+      x,
+      z,
+      cell,
+      powered: false,
+      lit: 0,
+      flickerSeed: Math.random() * 100,
+      index: i,
+      fuseIndex: 0
+    });
   });
   tubes.instanceColor.needsUpdate = true;
-  lampBodies.castShadow = false;
-  group.add(lampBodies, tubes);
+  bodies.castShadow = false;
+  bodies.receiveShadow = true;
 
-  // Настольные лампы включаются по щиткам: назначаем ближайший щиток.
+  // Ближайший щиток «отвечает» за лампу.
   for (const lamp of lamps) {
     let best = 0;
     let bestD = Infinity;
@@ -487,207 +542,517 @@ export function buildSchool() {
     lamp.fuseIndex = best;
   }
 
-  // Динамические источники света (фиксированное количество — без пересборки шейдеров).
+  const group = new THREE.Group();
+  group.add(bodies, tubes);
+  return { lamps, tubes, group };
+}
+
+/* --------------------------- щитки --------------------------- */
+
+function buildFuses(materials, colliders) {
+  return FUSE_CELLS.map((cell) => {
+    const spot = wallSpot(cell, cell.side);
+    const g = new THREE.Group();
+    g.position.set(spot.x, 0, spot.z);
+    g.rotation.y = spot.rotY;
+
+    // Корпус шкафа.
+    const cabinetMat = new THREE.MeshStandardMaterial({ color: 0x39424a, roughness: 0.5, metalness: 0.5 });
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.86, 0.22), cabinetMat);
+    box.position.set(0, 1.5, 0.13);
+    box.castShadow = true;
+    box.receiveShadow = true;
+    g.add(box);
+
+    // Приоткрытая дверца.
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x2c343a, roughness: 0.45, metalness: 0.6 });
+    const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.8, 0.03), doorMat);
+    doorMesh.position.set(0.3, 1.5, 0.26);
+    doorMesh.rotation.y = -0.5;
+    g.add(doorMesh);
+
+    // Автоматы.
+    for (let i = 0; i < 3; i += 1) {
+      const breaker = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.1, 0.06),
+        new THREE.MeshStandardMaterial({ color: 0x1b2024, roughness: 0.6, metalness: 0.4 })
+      );
+      breaker.position.set(-0.18 + i * 0.18, 1.55, 0.24);
+      g.add(breaker);
+    }
+
+    // Рубильник, который двигает игрок.
+    const lever = new THREE.Mesh(
+      new THREE.BoxGeometry(0.09, 0.3, 0.09),
+      new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.7, metalness: 0.2 })
+    );
+    lever.position.set(-0.12, 1.2, 0.28);
+    g.add(lever);
+
+    // Светодиод.
+    const ledMat = new THREE.MeshBasicMaterial({ color: 0xd8352a });
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), ledMat);
+    led.position.set(0.2, 1.78, 0.26);
+    g.add(led);
+
+    // Гофра и предупреждающая табличка.
+    const conduit = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.03, 0.03, 0.9, 8),
+      materials.metalDark
+    );
+    conduit.position.set(0.05, 2.42, 0.14);
+    g.add(conduit);
+
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.24, 0.3),
+      new THREE.MeshBasicMaterial({ color: 0xd7c25a })
+    );
+    sign.position.set(-0.34, 1.9, 0.15);
+    sign.rotation.y = 0;
+    g.add(sign);
+    const bolt = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.2, 0.26),
+      new THREE.MeshBasicMaterial({ color: 0xc8b64a })
+    );
+    bolt.position.set(0.44, 1.9, 0.15);
+    g.add(bolt);
+
+    // Коллизия.
+    addCollider(colliders, spot.x, spot.z, 0.5, 0.5);
+
+    return {
+      cell,
+      group: g,
+      led,
+      lever,
+      anchor: new THREE.Vector3(spot.x, 1.45, spot.z)
+    };
+  });
+}
+
+/* --------------------------- шкафчики --------------------------- */
+
+function buildLockers(materials, colliders) {
+  return LOCKER_CELLS.map((cell) => {
+    const spot = wallSpot(cell, cell.side);
+    const g = new THREE.Group();
+    g.position.set(spot.x, 0, spot.z);
+    g.rotation.y = spot.rotY;
+
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x39444c, roughness: 0.55, metalness: 0.45 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x151a1e, roughness: 0.8, metalness: 0.3 });
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.05, 0.5), bodyMat);
+    body.position.set(0, 1.02, 0.27);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    g.add(body);
+
+    const doors = [];
+    for (let d = -1; d <= 1; d += 1) {
+      const x = d * 0.49;
+      const door = new THREE.Mesh(new THREE.BoxGeometry(0.46, 1.9, 0.04), bodyMat);
+      door.position.set(x, 1.05, 0.53);
+      g.add(door);
+      doors.push(door);
+      // Вентиляционные щели.
+      for (let v = 0; v < 3; v += 1) {
+        const vent = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.025, 0.02), darkMat);
+        vent.position.set(x, 1.72 - v * 0.08, 0.555);
+        g.add(vent);
+      }
+      // Ручка и номерок.
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.18, 0.035), darkMat);
+      handle.position.set(x + 0.18, 1.05, 0.57);
+      g.add(handle);
+      const plate = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.14, 0.07),
+        new THREE.MeshBasicMaterial({ color: 0xb8ad8e })
+      );
+      plate.position.set(x, 1.86, 0.556);
+      g.add(plate);
+    }
+
+    // AABB зависит от стены: вдоль неё шкафчик длинный, а в комнату — тонкий.
+    const alongZ = cell.side === "west" || cell.side === "east";
+    addCollider(colliders, spot.x, spot.z, alongZ ? 0.7 : 1.6, alongZ ? 1.6 : 0.7);
+
+    return {
+      cell,
+      group: g,
+      doors,
+      pos: new THREE.Vector3(spot.x + spot.nx * 0.75, 1.4, spot.z + spot.nz * 0.75),
+      rotY: spot.rotY,
+      spot
+    };
+  });
+}
+
+/* --------------------------- записки и батарейки --------------------------- */
+
+function buildNotes(materials) {
+  const paperMat = new THREE.MeshStandardMaterial({
+    map: materials.paper.map,
+    roughness: 0.95,
+    emissive: 0x50493a,
+    emissiveIntensity: 0.22,
+    side: THREE.DoubleSide
+  });
+  return NOTE_SPOTS.map((cell) => {
+    const spot = wallSpot(cell, cell.side);
+    const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.38), paperMat);
+    paper.position.set(spot.x + spot.nx * 0.04, 1.42, spot.z + spot.nz * 0.04);
+    paper.rotation.y = spot.rotY;
+    paper.castShadow = false;
+    return { cell, mesh: paper, pos: paper.position.clone() };
+  });
+}
+
+function buildBatteries(materials) {
+  return BATTERY_SPOTS.map((cell) => {
+    const c = cellCenter(cell);
+    const g = new THREE.Group();
+    g.position.set(c.x, 0, c.z);
+    const shell = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.06, 0.24, 12),
+      new THREE.MeshStandardMaterial({ color: 0x8f9b4a, roughness: 0.4, metalness: 0.5, emissive: 0x2c3614, emissiveIntensity: 0.6 })
+    );
+    shell.rotation.z = Math.PI / 2;
+    shell.position.y = 0.12;
+    g.add(shell);
+    const cap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.03, 0.03, 0.04, 10),
+      materials.metal
+    );
+    cap.rotation.z = Math.PI / 2;
+    cap.position.set(0.14, 0.12, 0);
+    g.add(cap);
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 10, 10),
+      new THREE.MeshBasicMaterial({ color: 0xc9e08a, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false })
+    );
+    glow.position.y = 0.14;
+    g.add(glow);
+    return { cell, group: g, pos: new THREE.Vector3(c.x, 0.4, c.z), glow };
+  });
+}
+
+/* --------------------------- мебель --------------------------- */
+
+function furnishRoom(kit, colliders, room, boards) {
+  const b = roomBounds(room);
+  const add = (fn, ...args) => fn(kit, ...args);
+
+  switch (room.type) {
+    case "classroom":
+    case "lab":
+    case "computer": {
+      // Доска на западной стене.
+      add(Props.blackboard, b.left + 0.13, b.cz, Math.PI / 2, Math.min(4.4, b.d - 2.4));
+      if (boards) boards.push({ x: b.left + 0.16, z: b.cz, rotY: Math.PI / 2, room: room.id });
+      add(Props.teacherTable, b.left + 2.1, b.cz, Math.PI / 2);
+      addCollider(colliders, b.left + 2.1, b.cz, 1.5, 0.9);
+
+      if (room.type === "lab") {
+        // Лабораторные столы вдоль юга и севера.
+        add(Props.labBench, b.left + 5.4, b.top + 1.5, 0);
+        add(Props.labBench, b.left + 8.6, b.top + 1.5, 0);
+        add(Props.labBench, b.left + 5.4, b.bottom - 1.5, Math.PI);
+        add(Props.fumeHood, b.right - 0.5, b.top + 2.4, -Math.PI / 2);
+        addCollider(colliders, b.right - 0.5, b.top + 2.4, 0.9, 1.6);
+      } else if (room.type === "computer") {
+        for (let row = 0; row < 3; row += 1) {
+          for (let col = 0; col < 2; col += 1) {
+            const x = b.left + 4.2 + row * 1.9;
+            const z = b.top + 3.0 + col * 4.2;
+            add(Props.computerDesk, x, z, -Math.PI / 2);
+            addCollider(colliders, x + 0.35, z, 1.35, 1.7);
+          }
+        }
+      } else {
+        // Парты: четыре ряда по две.
+        for (let row = 0; row < 4; row += 1) {
+          const x = b.left + 3.9 + row * 1.85;
+          for (let col = 0; col < 2; col += 1) {
+            const z = b.cz + (col === 0 ? -1.9 : 1.9);
+            add(Props.desk, x, z, -Math.PI / 2);
+            addCollider(colliders, x + 0.3, z, 1.4, 1.25);
+          }
+        }
+      }
+
+      // Шкаф у восточной стены и мелочь.
+      add(Props.cabinet, b.right - 0.24, b.top + 1.4, -Math.PI / 2, { width: 1.0, height: 2.0 });
+      addCollider(colliders, b.right - 0.24, b.top + 1.4, 0.5, 1.1);
+      add(Props.bin, b.right - 0.7, b.bottom - 0.8);
+      add(Props.plant, b.right - 0.8, b.top + 0.8);
+      add(Props.noticeBoard, b.right - 2.4, b.bottom - 0.12, Math.PI, { width: 1.5, height: 0.95 });
+      break;
+    }
+
+    case "canteen": {
+      // Раздача вдоль восточной стены.
+      add(Props.counter, b.right - 0.75, b.cz - 2.2, -Math.PI / 2, 3.2);
+      addCollider(colliders, b.right - 0.75, b.cz - 2.2, 1.1, 3.3);
+      // Столы в восточной половине, запад оставляем свободным.
+      for (let index = 0; index < 4; index += 1) {
+        const x = b.left + 5.4 + (index % 2) * 2.6;
+        const z = b.top + 3.8 + Math.floor(index / 2) * 3.2;
+        add(Props.canteenTable, x, z, 0, { length: 2.0 });
+        addCollider(colliders, x, z, 2.1, 1.8);
+      }
+      // Меню на северной стене.
+      add(Props.noticeBoard, b.left + 2.4, b.top + 0.12, 0, { width: 1.8, height: 1.1 });
+      add(Props.bin, b.left + 1.0, b.bottom - 0.8);
+      break;
+    }
+
+    case "medical": {
+      add(Props.medicalBed, b.right - 1.2, b.top + 1.6, -Math.PI / 2);
+      addCollider(colliders, b.right - 1.2, b.top + 1.6, 0.9, 2.0);
+      add(Props.cabinet, b.left + 0.25, b.cz + 2.4, Math.PI / 2, { width: 1.0, height: 1.9 });
+      addCollider(colliders, b.left + 0.25, b.cz + 2.4, 0.5, 1.1);
+      add(Props.teacherTable, b.right - 1.3, b.bottom - 1.5, Math.PI);
+      addCollider(colliders, b.right - 1.3, b.bottom - 1.5, 1.5, 0.8);
+      add(Props.divider, b.right - 1.2, b.top + 3.6, -Math.PI / 2);
+      add(Props.plant, b.left + 0.8, b.bottom - 0.9);
+      add(Props.noticeBoard, b.left + 0.14, b.top + 1.6, Math.PI / 2, { width: 1.2, height: 0.9 });
+      break;
+    }
+
+    case "electrical": {
+      // Рядом с интерактивным щитком — ещё три «мёртвых» шкафа.
+      for (let i = 0; i < 3; i += 1) {
+        const z = b.top + 1.4 + i * 2.6;
+        kit.begin(b.left + 0.14, z, Math.PI / 2);
+        kit.box("metalDark", 0.5, 0.84, 0.2, 0, 1.5, 0.1);
+        kit.box("metal", 0.44, 0.7, 0.03, 0, 1.5, 0.21);
+        for (let k = 0; k < 3; k += 1) {
+          kit.box("black", 0.09, 0.1, 0.05, -0.13 + k * 0.13, 1.56, 0.24);
+        }
+        kit.end();
+      }
+      add(Props.extinguisher, b.right - 0.4, b.bottom - 1.0, -Math.PI / 2);
+      add(Props.bin, b.left + 0.7, b.bottom - 0.7);
+      break;
+    }
+
+    case "library": {
+      // Стеллажи вдоль западной стены.
+      for (let i = 0; i < 3; i += 1) {
+        const z = b.top + 1.6 + i * 3.1;
+        add(Props.shelf, b.left + 0.32, z, Math.PI / 2, { width: 2.6, height: 2.1 });
+        addCollider(colliders, b.left + 0.32, z, 0.5, 2.7);
+      }
+      add(Props.shelf, b.right - 0.32, b.top + 2.2, -Math.PI / 2, { width: 2.4, height: 2.1 });
+      addCollider(colliders, b.right - 0.32, b.top + 2.2, 0.5, 2.5);
+      // Читальный стол.
+      add(Props.teacherTable, b.left + 4.6, b.cz, Math.PI / 2);
+      addCollider(colliders, b.left + 4.6, b.cz, 1.6, 0.9);
+      add(Props.chair, b.left + 5.6, b.cz - 0.8, 0);
+      add(Props.chair, b.left + 3.6, b.cz + 0.8, Math.PI);
+      add(Props.plant, b.right - 0.9, b.bottom - 0.9);
+      add(Props.noticeBoard, b.right - 0.14, b.cz, Math.PI / 2, { width: 1.2, height: 0.8 });
+      break;
+    }
+
+    case "gym": {
+      add(Props.wallBars, b.left + 0.2, b.top + 2.2, Math.PI / 2, { width: 2.8, height: 2.6 });
+      add(Props.wallBars, b.left + 0.2, b.top + 5.6, Math.PI / 2, { width: 2.8, height: 2.6 });
+      addCollider(colliders, b.left + 0.2, b.top + 2.2, 0.5, 2.9);
+      addCollider(colliders, b.left + 0.2, b.top + 5.6, 0.5, 2.9);
+      add(Props.gymMat, b.left + 4.2, b.top + 4.0, 0);
+      add(Props.gymMat, b.left + 4.2, b.top + 8.2, 0);
+      add(Props.gymHorse, b.left + 3.0, b.top + 10.4, 0);
+      addCollider(colliders, b.left + 3.0, b.top + 10.4, 1.5, 0.6);
+      add(Props.bench, b.right - 1.0, b.top + 3.2, -Math.PI / 2, 2.0);
+      add(Props.bench, b.right - 1.0, b.top + 8.0, -Math.PI / 2, 2.0);
+      add(Props.courtMarkings, b.cx, b.cz, b.w - 1.6, b.d - 1.6);
+      // Баскетбольное кольцо.
+      kit.begin(b.right - 0.05, b.top + 5.0, -Math.PI / 2);
+      kit.box("metal", 1.2, 0.8, 0.06, 0, 2.9, 0.03);
+      kit.cyl("metal", 0.03, 0.12, 0, 2.55, 0.24);
+      kit.add("paintRed", new THREE.TorusGeometry(0.22, 0.02, 6, 16), { pos: [0, 2.4, 0.42], rot: [Math.PI / 2, 0, 0] });
+      kit.end();
+      add(Props.plant, b.right - 0.8, b.bottom - 0.7);
+      break;
+    }
+
+    case "locker": {
+      add(Props.bench, b.cx + 0.5, b.bottom - 0.9, 0, 1.4);
+      addCollider(colliders, b.cx + 0.5, b.bottom - 0.9, 1.5, 0.5);
+      add(Props.shower, b.left + 0.5, b.top + 1.2, Math.PI / 2);
+      add(Props.shower, b.right - 0.5, b.top + 1.2, -Math.PI / 2);
+      add(Props.extinguisher, b.right - 0.35, b.bottom - 0.7, -Math.PI / 2);
+      break;
+    }
+
+    case "hall": {
+      // Гардероб вдоль северной стены, слева от арки.
+      add(Props.coatRack, b.left + 1.7, b.top + 0.24, 0, 3.2);
+      addCollider(colliders, b.left + 1.7, b.top + 0.24, 3.3, 0.7);
+      // Вахта у входа.
+      add(Props.receptionDesk, b.right - 1.6, b.bottom - 1.1, Math.PI);
+      addCollider(colliders, b.right - 1.6, b.bottom - 1.1, 1.9, 0.8);
+      add(Props.bench, b.right - 0.9, b.cz, -Math.PI / 2, 2.0);
+      addCollider(colliders, b.right - 0.9, b.cz, 0.5, 2.1);
+      add(Props.plant, b.left + 0.7, b.bottom - 0.8);
+      add(Props.plant, b.right - 0.7, b.top + 0.7);
+      // Баннер на восточной стене, стенд на западной.
+      add(Props.banner, b.right - 0.14, b.top + 2.6, -Math.PI / 2, { width: 3.6, height: 0.9 });
+      add(Props.noticeBoard, b.left + 0.14, b.top + 2.2, Math.PI / 2, { width: 1.5, height: 1.0 });
+      break;
+    }
+
+    default:
+      break;
+  }
+}
+
+function buildCorridorProps(kit, colliders) {
+  // Стенды, часы, огнетушители, урны и растения вдоль рекреации.
+  const northFace = 7 * TILE; // грань стены, выходящая в коридор
+  const southFace = 9 * TILE;
+
+  const boards = [6.0, 12.0, 24.0];
+  for (const x of boards) {
+    Props.noticeBoard(kit, x, northFace + 0.02, 0, { width: 1.6, height: 1.0 });
+  }
+  Props.noticeBoard(kit, 4.4, southFace - 0.02, Math.PI, { width: 1.4, height: 0.9 });
+
+  for (const x of [10.0, 22.0]) Props.clock(kit, x, northFace + 0.02, 0);
+  for (const x of [8.0, 20.0]) Props.extinguisher(kit, x, southFace - 0.02, Math.PI);
+
+  // Растения и урны — без коллизий: это мелочь, сквозь неё можно пройти.
+  for (const x of [17.6, 28.4]) Props.plant(kit, x, northFace + 0.55, 0);
+  for (const x of [3.0, 11.5, 23.5]) Props.bin(kit, x, southFace - 0.55);
+  // Скамья у окна в конце рекреации — вдоль стены, не поперёк прохода.
+  Props.bench(kit, 29.7, northFace + 0.36, Math.PI, 1.6);
+}
+
+/* --------------------------- вход --------------------------- */
+
+function buildEntrance(materials, colliders) {
+  const cell = EXIT_CELL;
+  const cx = (cell.x + 0.5) * TILE;
+  const z = (cell.y + 1) * TILE;
+
+  const group = new THREE.Group();
+  group.position.set(cx, 0, z);
+  group.rotation.y = Math.PI; // смотрит внутрь вестибюля
+
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x2f3438, roughness: 0.6, metalness: 0.35 });
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0x4a3a26, roughness: 0.7, metalness: 0.1 });
+
+  // Двустворчатая дверь с тамбурной рамой.
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.7, 0.16), frameMat);
+  frame.position.set(0, 1.35, 0.08);
+  group.add(frame);
+
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.05, 2.32, 0.08), doorMat);
+  door.position.set(-0.55, 1.18, 0.19);
+  group.add(door);
+  const door2 = door.clone();
+  door2.position.x = 0.55;
+  group.add(door2);
+
+  const glassMat = new THREE.MeshBasicMaterial({ color: 0x0a1018 });
+  for (const dx of [-0.55, 0.55]) {
+    const pane = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.9, 0.02), glassMat);
+    pane.position.set(dx, 1.62, 0.15);
+    group.add(pane);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.05), materials.steel);
+    handle.position.set(dx + (dx < 0 ? 0.34 : -0.34), 1.05, 0.24);
+    group.add(handle);
+  }
+
+  // Светящаяся табличка «ВЫХОД».
+  const signMat = new THREE.MeshBasicMaterial({ color: 0x1d6b33 });
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.24, 0.08), signMat);
+  sign.position.set(0, 2.72, 0.2);
+  group.add(sign);
+
+  // Коврик и порог.
+  const mat = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.2, 1.2),
+    new THREE.MeshStandardMaterial({ color: 0x2a2a28, roughness: 1 })
+  );
+  mat.rotation.x = -Math.PI / 2;
+  mat.position.set(0, 0.012, 0.9);
+  group.add(mat);
+
+  return {
+    group,
+    doorMesh: door,
+    exitSignMat: signMat,
+    anchor: new THREE.Vector3(cx, 1.1, z - 0.2)
+  };
+}
+
+/* --------------------------- сборка --------------------------- */
+
+export function buildSchool() {
+  const materials = createSchoolMaterials();
+  const group = new THREE.Group();
+  const colliders = [];
+
+  // Подложка под полами — чтобы не было щелей у стен.
+  const subfloor = new THREE.Mesh(
+    new THREE.PlaneGeometry(MAP_W * TILE + 8, MAP_H * TILE + 8),
+    new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 1 })
+  );
+  subfloor.rotation.x = -Math.PI / 2;
+  subfloor.position.set((MAP_W * TILE) / 2, -0.06, (MAP_H * TILE) / 2);
+  group.add(subfloor);
+
+  group.add(buildFloors(materials));
+  group.add(buildCeiling(materials));
+  group.add(buildWalls(materials, colliders));
+
+  const windows = buildWindows(materials, colliders);
+  group.add(windows.group);
+
+  group.add(buildDoors(materials, colliders));
+
+  const { lamps, tubes, group: lampGroup } = buildLamps(materials);
+  group.add(lampGroup);
+
+  // Динамические источники: фиксированное количество.
   const pointLights = [];
-  for (let i = 0; i < 8; i += 1) {
-    const light = new THREE.PointLight(0xd9d2b4, 0, 13, 1.6);
+  for (let i = 0; i < 10; i += 1) {
+    const light = new THREE.PointLight(0xd9d2b4, 0, 12, 1.8);
     light.position.set(-100, -100, -100);
     group.add(light);
     pointLights.push(light);
   }
 
-  /* ------------------------ щитки ------------------------ */
-  const fuseAnchors = FUSE_CELLS.map((cell) => {
-    const side = wallSideFor(cell);
-    const g = new THREE.Group();
-    g.position.set(side.x, 0, side.z);
-    g.rotation.y = side.rotY;
+  const fuseAnchors = buildFuses(materials, colliders);
+  const lockerAnchors = buildLockers(materials, colliders);
+  const noteAnchors = buildNotes(materials);
+  const batteryAnchors = buildBatteries(materials);
 
-    const box = new THREE.Mesh(
-      new THREE.BoxGeometry(0.52, 0.72, 0.16),
-      new THREE.MeshStandardMaterial({ color: 0x2b3238, roughness: 0.55, metalness: 0.45 })
-    );
-    box.position.y = 1.45;
-    box.position.z = 0.09;
-    box.castShadow = true;
-    box.receiveShadow = true;
-    g.add(box);
+  for (const note of noteAnchors) group.add(note.mesh);
+  for (const battery of batteryAnchors) group.add(battery.group);
+  for (const fuse of fuseAnchors) group.add(fuse.group);
+  for (const locker of lockerAnchors) group.add(locker.group);
 
-    const lever = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.26, 0.1),
-      new THREE.MeshStandardMaterial({ color: 0x54616a, roughness: 0.4, metalness: 0.7 })
-    );
-    lever.position.set(0, 1.42, 0.2);
-    g.add(lever);
-
-    const led = new THREE.Mesh(
-      new THREE.SphereGeometry(0.035, 10, 10),
-      new THREE.MeshBasicMaterial({ color: 0xd8352a })
-    );
-    led.position.set(0.16, 1.7, 0.18);
-    g.add(led);
-
-    group.add(g);
-    colliders.push({
-      minX: side.x - 0.4,
-      maxX: side.x + 0.4,
-      minZ: side.z - 0.4,
-      maxZ: side.z + 0.4
-    });
-
-    return { cell, group, led, lever, anchor: new THREE.Vector3(side.x, 1.45, side.z) };
-  });
-
-  /* ------------------------ шкафчики ------------------------ */
-  const lockerMat = new THREE.MeshStandardMaterial({ color: 0x37434c, roughness: 0.6, metalness: 0.5 });
-  const lockerDark = new THREE.MeshStandardMaterial({ color: 0x14191d, roughness: 0.8, metalness: 0.3 });
-  const lockerAnchors = LOCKER_CELLS.map((cell) => {
-    const side = wallSideFor(cell);
-    const g = new THREE.Group();
-    g.position.set(side.x, 0, side.z);
-    g.rotation.y = side.rotY;
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.25, 2.0, 0.52), lockerMat);
-    body.position.y = 1.0;
-    body.position.z = 0.28;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    g.add(body);
-
-    for (let d = -1; d <= 1; d += 1) {
-      const seam = new THREE.Mesh(new THREE.BoxGeometry(0.02, 1.8, 0.02), lockerDark);
-      seam.position.set(d * 0.41 + 0.205, 1.0, 0.55);
-      g.add(seam);
-      const vent = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.02), lockerDark);
-      vent.position.set(d * 0.41 + 0.205, 1.62, 0.55);
-      g.add(vent);
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.03), lockerDark);
-      handle.position.set(d * 0.41 + 0.34, 1.05, 0.56);
-      g.add(handle);
-    }
-
-    group.add(g);
-    colliders.push({
-      minX: side.x - 0.75,
-      maxX: side.x + 0.75,
-      minZ: side.z + 0.0,
-      maxZ: side.z + 0.62
-    });
-
-    return {
-      cell,
-      group,
-      pos: new THREE.Vector3(side.x + Math.sin(side.rotY) * 0.4, 1.4, side.z + Math.cos(side.rotY) * 0.4),
-      rotY: side.rotY
-    };
-  });
-
-  // Коллизии шкафчиков зависят от поворота — пересобираем AABB корректно.
-  colliders.length = 0;
-  for (const fuse of fuseAnchors) {
-    const p = fuse.group.position;
-    colliders.push({ minX: p.x - 0.42, maxX: p.x + 0.42, minZ: p.z - 0.42, maxZ: p.z + 0.42 });
+  // Мебель: один склеенный меш на материал.
+  const kit = new Kit();
+  const blackboardAnchors = [];
+  for (const room of ROOMS) {
+    if (room.id === "corridor") continue;
+    furnishRoom(kit, colliders, room, blackboardAnchors);
   }
-  for (const locker of lockerAnchors) {
-    const p = locker.group.position;
-    const halfW = 0.72;
-    const halfD = 0.62;
-    const cos = Math.abs(Math.cos(locker.rotY));
-    const sin = Math.abs(Math.sin(locker.rotY));
-    colliders.push({
-      minX: p.x - (halfW * cos + halfD * sin),
-      maxX: p.x + (halfW * cos + halfD * sin),
-      minZ: p.z - (halfW * sin + halfD * cos),
-      maxZ: p.z + (halfW * sin + halfD * cos)
-    });
-  }
+  buildCorridorProps(kit, colliders);
+  const furniture = kit.build(materials);
+  group.add(furniture);
 
-  /* ------------------------ входная дверь ------------------------ */
-  const exitSide = wallSideFor(EXIT_CELL); // стена (1,0) над точкой спавна
-  const exitAnchor = new THREE.Vector3(exitSide.x, 1.1, exitSide.z + Math.cos(exitSide.rotY) * 0.04);
-
-  const doorGroup = new THREE.Group();
-  doorGroup.position.set(exitSide.x, 0, exitSide.z);
-  doorGroup.rotation.y = exitSide.rotY;
-  const door = new THREE.Mesh(
-    new THREE.BoxGeometry(1.15, 2.25, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0x4b3826, roughness: 0.75, metalness: 0.05 })
-  );
-  door.position.y = 1.13;
-  door.position.z = 0.06;
-  door.castShadow = true;
-  door.receiveShadow = true;
-  doorGroup.add(door);
-  const handle = new THREE.Mesh(
-    new THREE.SphereGeometry(0.05, 10, 10),
-    new THREE.MeshStandardMaterial({ color: 0x9a8b56, roughness: 0.35, metalness: 0.8 })
-  );
-  handle.position.set(0.42, 1.05, 0.13);
-  doorGroup.add(handle);
-
-  const signMat = new THREE.MeshBasicMaterial({ color: 0x1d6b33 });
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.16, 0.05), signMat);
-  sign.position.set(0, 2.5, 0.08);
-  doorGroup.add(sign);
-  group.add(doorGroup);
-
-  /* ------------------------ записки и батарейки ------------------------ */
-  const paperMat = new THREE.MeshStandardMaterial({
-    map: paperTexture(),
-    roughness: 0.9,
-    emissive: 0x6a6250,
-    emissiveIntensity: 0.12
-  });
-  const noteAnchors = NOTE_SPOTS.map((cell) => {
-    const side = wallSideFor(cell);
-    const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.4), paperMat);
-    paper.position.set(side.x + Math.sin(side.rotY) * 0.035, 1.35, side.z + Math.cos(side.rotY) * 0.035);
-    paper.rotation.y = side.rotY;
-    group.add(paper);
-    return { cell, mesh: paper, pos: paper.position.clone() };
-  });
-
-  const batteryAnchors = BATTERY_SPOTS.map((cell) => {
-    const c = cellCenter(cell);
-    const g = new THREE.Group();
-    g.position.set(c.x, 0, c.z);
-    const cellMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.055, 0.055, 0.22, 10),
-      new THREE.MeshStandardMaterial({ color: 0x93a04f, roughness: 0.4, metalness: 0.5, emissive: 0x36421a, emissiveIntensity: 0.5 })
-    );
-    cellMesh.rotation.z = Math.PI / 2;
-    cellMesh.position.y = 0.14;
-    g.add(cellMesh);
-    const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 10, 10),
-      new THREE.MeshBasicMaterial({ color: 0xc9e08a, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false })
-    );
-    glow.position.y = 0.16;
-    g.add(glow);
-    group.add(g);
-    return { cell, group: g, pos: new THREE.Vector3(c.x, 0.4, c.z), glow };
-  });
-
-  /* ------------------------ мусорные корзины ------------------------ */
-  const binMat = new THREE.MeshStandardMaterial({ color: 0x2f3632, roughness: 0.7, metalness: 0.35 });
-  for (let y = 1; y < MAP_H - 1; y += 1) {
-    for (let x = 1; x < MAP_W - 1; x += 1) {
-      if (MAP_ROWS[y][x] === "#") continue;
-      if (hash(x + 7, y + 3) % 23 !== 0) continue;
-      const side = wallSideFor({ x, y });
-      const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.16, 0.5, 12), binMat);
-      const bx = side.x + Math.sin(side.rotY) * 0.3;
-      const bz = side.z + Math.cos(side.rotY) * 0.3;
-      bin.position.set(bx, 0.25, bz);
-      bin.castShadow = true;
-      bin.receiveShadow = true;
-      group.add(bin);
-      colliders.push({ minX: bx - 0.22, maxX: bx + 0.22, minZ: bz - 0.22, maxZ: bz + 0.22 });
-    }
-  }
+  const entrance = buildEntrance(materials, colliders);
+  group.add(entrance.group);
 
   return {
     group,
+    materials,
     colliders,
     lamps,
     pointLights,
@@ -696,8 +1061,11 @@ export function buildSchool() {
     lockerAnchors,
     noteAnchors,
     batteryAnchors,
-    exitAnchor,
-    exitSignMat: signMat,
-    doorMesh: door
+    windowAnchors: windows.anchors,
+    blackboardAnchors,
+    rooms: ROOMS,
+    exitAnchor: entrance.anchor,
+    exitSignMat: entrance.exitSignMat,
+    doorMesh: entrance.doorMesh
   };
 }
