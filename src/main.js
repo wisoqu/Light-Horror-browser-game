@@ -82,7 +82,25 @@ if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) {
 
 /* --------------------------- сцена --------------------------- */
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+/** Показать причину сбоя прямо на экране: мёртвая кнопка хуже ошибки. */
+function bootFail(message) {
+  const el = document.getElementById("bootError");
+  if (el) {
+    el.textContent = `СБОЙ ЗАПУСКА · ${message}`;
+    el.classList.remove("hidden");
+  }
+}
+
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+} catch (err) {
+  bootFail(
+    "браузер не дал WebGL — включи аппаратное ускорение или открой игру в Chrome/Firefox. " +
+      (err && err.message ? err.message : "")
+  );
+  throw err;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -439,9 +457,20 @@ window.addEventListener("resize", () => {
 /* --------------------------- экраны / поток --------------------------- */
 
 function startGame() {
-  audio.init();
-  audio.resume();
-  resetGame();
+  // Звук — не причина не пускать в игру: в iframe AudioContext может быть
+  // заблокирован, тогда играем в тишине.
+  try {
+    audio.init();
+    audio.resume();
+  } catch (err) {
+    console.warn("[audio] не удалось включить звук:", err);
+  }
+  try {
+    resetGame();
+  } catch (err) {
+    console.error("[reset]", err);
+    bootFail(`сброс уровня: ${err && err.message}`);
+  }
   gameState = "play";
   lookGraceUntil = performance.now() + 1500;
   screenTitle.classList.add("hidden");
@@ -465,7 +494,11 @@ function resumeGame() {
   if (gameState !== "pause") return;
   gameState = "play";
   screenPause.classList.add("hidden");
-  audio.resume();
+  try {
+    audio.resume();
+  } catch (err) {
+    console.warn("[audio]", err);
+  }
   requestLook();
 }
 
@@ -1176,6 +1209,8 @@ gameState = "title";
 requestAnimationFrame(loop);
 
 /* Отладочный интерфейс (для автотестов и консоли разработчика). */
+window.__lhBooted = true;
+
 window.__lh = {
   get player() {
     return player;
