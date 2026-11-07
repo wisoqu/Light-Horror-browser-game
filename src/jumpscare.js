@@ -44,8 +44,13 @@ export class JumpScare {
     if (this.t > 0.15) {
       const twitch = Math.sin(this.t * 37) * 0.05 + Math.sin(this.t * 13) * 0.03;
       this.group.rotation.z = twitch;
-      this.group.rotation.y = 0.5 - (this.t - 0.15) * 0.9 + twitch * 0.6;
-      this.group.rotation.x = 0.1 - this.t * 0.15;
+      // Смотрит прямо в объектив, голова мелко дёргается.
+      this.group.rotation.y = 0.12 - Math.min(0.2, (this.t - 0.15) * 0.3) + twitch * 0.5;
+      this.group.rotation.x = 0.06 - this.t * 0.1;
+      if (this.rig.head) {
+        this.rig.head.rotation.z = Math.sin(this.t * 23) * 0.05;
+        this.rig.head.rotation.x = Math.sin(this.t * 17) * 0.04;
+      }
       this.rig.hands.position.y = -0.45 + Math.min(1, this.t * 3) * 0.35;
       this.rig.hands.rotation.z = Math.sin(this.t * 8) * 0.06;
     }

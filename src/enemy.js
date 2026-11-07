@@ -35,6 +35,7 @@ export class Enemy {
     this.sawPlayerHide = false;
     this.lastKnown = null;
     this.blockedTimer = 0;
+    this.alertTimer = 0;
     this._lastX = 0;
     this._lastZ = 0;
     this.reset();
@@ -55,6 +56,7 @@ export class Enemy {
     this.speed = 0;
     this.moving = false;
     this.blockedTimer = 0;
+    this.alertTimer = 0;
     this.mesh.position.set(this.x, 0, this.z);
   }
 
@@ -108,14 +110,17 @@ export class Enemy {
       los &&
       (dot > fovCos || dist < 2.2 || lightAlert);
 
-    const heardRadius = 3 + player.noise * 11;
-    const canHear = !player.hidden && player.noise > 0.32 && dist < heardRadius;
+    // Она ГЛУХАЯ: шаги и бег её не привлекают. Только зрение.
+    const canHear = false;
 
     if (canSee) {
+      // Первый кадр погони — она замирает и смотрит: даёт игроку ужаснуться
+      // и рвануть, вместо мгновенного «телепорта в лицо».
+      if (this.state !== "hunt") this.alertTimer = 0.5;
       this.state = "hunt";
       this.target = { x: player.x, z: player.z };
       this.lastKnown = { x: player.x, z: player.z };
-      this.memory = 3.8;
+      this.memory = 3.2;
       this.sawPlayerHide = false;
     } else if (canHear) {
       if (this.state !== "hunt") {
@@ -150,14 +155,15 @@ export class Enemy {
     }
 
     /* ---------- цель и движение ---------- */
-    let speed = 1.62;
+    let speed = 1.45;
     if (this.state === "hunt") {
-      speed = 2.95 + ctx.collected * 0.13 + player.noise * 0.22;
+      // Никогда не быстрее бега игрока (4.5): её можно перебежать.
+      speed = Math.min(3.35, 3.15 + ctx.collected * 0.05);
       if (player.hidden && this.sawPlayerHide) this.target = { x: player.x, z: player.z };
     } else if (this.state === "investigate") {
-      speed = 2.3;
+      speed = 2.0;
     } else if (this.state === "search") {
-      speed = 1.9;
+      speed = 1.7;
       this.searchTimer -= dt;
       if (this.searchTimer <= 0) {
         this.state = "patrol";
@@ -165,11 +171,16 @@ export class Enemy {
       }
     }
 
+    if (this.alertTimer > 0) {
+      this.alertTimer = Math.max(0, this.alertTimer - dt);
+      speed = 0;
+    }
+
     let moveTarget = this.target;
     if (this.state === "patrol") {
       const p = cellCenter(PATROL_CELLS[this.patrolIndex]);
       moveTarget = p;
-      speed = 1.62;
+      speed = 1.45;
       if (Math.hypot(p.x - this.x, p.z - this.z) < TILE * 0.55) {
         this.patrolIndex = (this.patrolIndex + 1) % PATROL_CELLS.length;
       }
@@ -217,12 +228,12 @@ export class Enemy {
     this._lastZ = this.z;
 
     /* ---------- контакт ---------- */
-    if (dist < 1.0 && !player.hidden) {
+    if (dist < 0.85 && !player.hidden) {
       ctx.onKill();
       return;
     }
     // Нашла в шкафчике — только если точно знает, где ты спрятался.
-    if (player.hidden && this.sawPlayerHide && dist < 1.35) {
+    if (player.hidden && this.sawPlayerHide && dist < 1.15) {
       ctx.onKill("Она медленно открыла дверцу шкафчика…");
       return;
     }
@@ -274,7 +285,7 @@ export class Enemy {
     const parts = this.mesh.userData.parts;
     this.mesh.position.x = this.x;
     this.mesh.position.z = this.z;
-    this.mesh.rotation.y = this.angle + Math.PI; // модель смотрит в -Z
+    this.mesh.rotation.y = this.angle; // модель в monster.js смотрит в +Z
 
     const pace = this.state === "hunt" ? 8.5 : 5;
     const bob = this.moving ? Math.sin(this.time * pace) * 0.035 : Math.sin(this.time * 1.4) * 0.012;

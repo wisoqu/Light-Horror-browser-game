@@ -253,6 +253,32 @@ export class GameAudio {
     mod.stop(ctx.currentTime + 1.6);
   }
 
+  /** Удар в грудь: сабовый толчок + треск. Момент, когда она достаёт. */
+  impact() {
+    if (!this.ready) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(96, t0);
+    osc.frequency.exponentialRampToValueAtTime(26, t0 + 0.55);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.4, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8);
+    osc.connect(g);
+    g.connect(this.master);
+    osc.start(t0);
+    osc.stop(t0 + 0.85);
+
+    // Хруст по верхам.
+    this.noise(0.22, { peak: 0.22, filter: "highpass", freq: 2600, q: 0.7, attack: 0.001 });
+
+    // Скрип половиц под шагом.
+    this.tone(120, 0.5, { type: "triangle", peak: 0.05, slideTo: 70 });
+  }
+
   winChime() {
     const notes = [392, 523, 659, 784];
     notes.forEach((n, i) => {

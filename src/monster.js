@@ -1,348 +1,351 @@
 import * as THREE from "three";
 
 /* ============================================================
-   ДЕЖУРНАЯ — модель.
+   Дежурная.
    ------------------------------------------------------------
-   Долговязая фигура в тёмном школьном платье, слишком длинные
-   руки с длинными пальцами, бледная кожа, мокрые волосы, лица
-   почти не видно — только провалы глаз и щель рта.
+   Собрана не из кубов: платье — латекс с вертикальными складками,
+   торс — сужающийся к талии профиль, голова — череп с глазницами,
+   провалом рта и длинными прядями волос, руки с локтями и кистями.
 
-   Контракт с enemy.js (не менять имена):
-     parts.armL / parts.armR — группы в плече (rotation.x = мах)
-     parts.head            — группа в шее (rotation.y = поворот)
-     parts.eyeMat          — материал глаз (цвет меняется в охоте)
+   Контракт для enemy.js:
+     group.userData.parts = { skirt, torso, head, armL, armR, eyeMat, mats }
+     armL/armR — группы с точкой вращения в плече (rotation.x = шаг)
+     head      — группа с точкой вращения на шее (rotation.y = поворот)
+     eyeMat    — материал зрачков (enemy.js красит их в красный при охоте)
    ============================================================ */
 
-function noiseTexture(size, base, spots, alpha) {
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const g = canvas.getContext("2d");
-  g.fillStyle = base;
-  g.fillRect(0, 0, size, size);
-  for (let i = 0; i < 260; i += 1) {
-    g.fillStyle = spots;
-    g.globalAlpha = alpha * (0.3 + Math.random() * 0.7);
-    g.beginPath();
-    g.arc(Math.random() * size, Math.random() * size, 1 + Math.random() * 9, 0, Math.PI * 2);
-    g.fill();
-  }
-  g.globalAlpha = 1;
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  return tex;
-}
+const SKIN = 0xc4b6a6;
+const SKIN_SHADE = 0x9d8f80;
+const DRESS = 0x1c2026;
+const DRESS_DEEP = 0x14171b;
+const HAIR = 0x07080a;
+const EYE_WHITE = 0xd8cfbe;
 
 function makeMaterials(ghost) {
+  const base = (color, rough, opts = {}) => new THREE.MeshStandardMaterial({
+    color,
+    roughness: rough,
+    metalness: 0.02,
+    ...opts
+  });
+
+  const mats = {
+    dress: base(DRESS, 0.94, { emissive: 0x0b0d11, emissiveIntensity: 0.75 }),
+    dressDeep: base(DRESS_DEEP, 0.96),
+    skin: base(SKIN, 0.86, { emissive: 0x0a0806, emissiveIntensity: 0.35 }),
+    skinShade: base(SKIN_SHADE, 0.9),
+    hair: base(HAIR, 0.72, { emissive: 0x04050a, emissiveIntensity: 0.5 }),
+    collar: base(0x9a9384, 0.95),
+    void: new THREE.MeshBasicMaterial({ color: 0x030304 }),
+    eyeWhite: new THREE.MeshBasicMaterial({ color: EYE_WHITE }),
+    eye: new THREE.MeshBasicMaterial({ color: 0x141414 }),
+    blood: new THREE.MeshBasicMaterial({ color: 0x4a0b0e })
+  };
+
   if (ghost) {
-    return {
-      skin: new THREE.MeshStandardMaterial({
-        color: 0xe8eef4,
-        emissive: 0xa9c2d6,
-        emissiveIntensity: 1.2,
-        transparent: true,
-        opacity: 0.38,
-        roughness: 1,
-        depthWrite: false
-      }),
-      dress: new THREE.MeshStandardMaterial({
-        color: 0xd7e2ec,
-        emissive: 0x8fa6ba,
-        emissiveIntensity: 1.0,
-        transparent: true,
-        opacity: 0.26,
-        roughness: 1,
-        depthWrite: false
-      }),
-      hair: new THREE.MeshStandardMaterial({
-        color: 0xc8d6e2,
-        emissive: 0x7e94a8,
-        emissiveIntensity: 0.8,
-        transparent: true,
-        opacity: 0.3,
-        depthWrite: false
-      }),
-      eye: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }),
-      mouth: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5 })
+    const ghostly = (m, opacity, emissive) => {
+      m.transparent = true;
+      m.opacity = opacity;
+      m.depthWrite = false;
+      if (m.emissive) {
+        m.emissive = new THREE.Color(emissive);
+        m.emissiveIntensity = 1.2;
+      }
+      return m;
     };
+    ghostly(mats.dress, 0.5, 0x1a2028);
+    ghostly(mats.dressDeep, 0.5, 0x101418);
+    ghostly(mats.skin, 0.62, 0x2a2720);
+    ghostly(mats.skinShade, 0.6, 0x201d18);
+    ghostly(mats.hair, 0.45, 0x080a10);
+    ghostly(mats.collar, 0.35, 0x2a2a26);
+    mats.void = new THREE.MeshBasicMaterial({ color: 0x05060a, transparent: true, opacity: 0.55, depthWrite: false });
+    mats.eyeWhite = new THREE.MeshBasicMaterial({ color: 0xbfc6c2, transparent: true, opacity: 0.8 });
+    mats.eye = new THREE.MeshBasicMaterial({ color: 0x05070a, transparent: true, opacity: 0.9 });
   }
 
-  const skinTex = noiseTexture(256, "#b7b1a2", "#6f6a60", 0.14);
-  return {
-    skin: new THREE.MeshStandardMaterial({
-      map: skinTex,
-      color: 0xb9b3a4,
-      roughness: 0.78,
-      metalness: 0.02,
-      emissive: 0x2a2c2e,
-      emissiveIntensity: 0.35
-    }),
-    dress: new THREE.MeshStandardMaterial({
-      color: 0x2a3038,
-      roughness: 0.95,
-      metalness: 0.02,
-      emissive: 0x101318,
-      emissiveIntensity: 0.7
-    }),
-    hair: new THREE.MeshStandardMaterial({
-      color: 0x08090b,
-      roughness: 1,
-      metalness: 0
-    }),
-    eye: new THREE.MeshBasicMaterial({ color: 0xe9e2d2 }),
-    mouth: new THREE.MeshBasicMaterial({ color: 0x050506 })
-  };
+  return mats;
+}
+
+/* --------------------------- утилиты --------------------------- */
+
+/**
+ * Тело вращения по профилю [[y, r], ...] с вертикальными складками.
+ * Складки сделаны модуляцией радиуса: ткань, а не конус.
+ */
+function latheGeometry(profile, segments = 34, folds = 0, foldAmp = 0) {
+  const geom = new THREE.LatheGeometry(
+    profile.map(([y, r]) => new THREE.Vector2(Math.max(0.0001, r), y)),
+    segments
+  );
+  if (folds > 0 && foldAmp > 0) {
+    const pos = geom.attributes.position;
+    for (let i = 0; i < pos.count; i += 1) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      const r = Math.hypot(x, z);
+      if (r < 1e-4) continue;
+      const a = Math.atan2(x, z);
+      const k = 1 + Math.cos(a * folds) * foldAmp;
+      pos.setX(i, x * k);
+      pos.setZ(i, z * k);
+    }
+    pos.needsUpdate = true;
+    geom.computeVertexNormals();
+  }
+  return geom;
+}
+
+function mesh(geometry, material, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(geometry, material);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  return m;
 }
 
 /* --------------------------- голова --------------------------- */
 
+/** Голова с лицом. Лицом в +Z, точка вращения — основание шеи. */
 function makeHead(mats, { jumpscare = false } = {}) {
   const head = new THREE.Group();
 
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.155, 20, 18), mats.skin);
-  skull.scale.set(0.88, 1.22, 0.98);
-  skull.position.y = 0.13;
-  skull.castShadow = true;
-  head.add(skull);
+  // Череп: узкий, вытянутый, чуть сдавленный с боков.
+  const skull = mesh(new THREE.SphereGeometry(0.1, 26, 22), mats.skin, 0, 0.082, 0);
+  skull.scale.set(0.9, 1.14, 0.96);
 
-  // Челюсть — тяжёлая, выдвинутая вперёд.
-  const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.1, 0.1), mats.skin);
-  jaw.position.set(0, 0.04, 0.11);
-  jaw.scale.set(1, 1, 1);
-  head.add(jaw);
+  // Затылок.
+  const back = mesh(new THREE.SphereGeometry(0.094, 20, 16), mats.skin, 0, 0.07, -0.018);
+  back.scale.set(0.96, 1.06, 1.0);
 
-  // Глазницы: чёрные провалы, внутри — тусклый блик.
-  const socketGeo = new THREE.SphereGeometry(0.042, 12, 10);
-  const socketL = new THREE.Mesh(socketGeo, mats.mouth);
-  const socketR = new THREE.Mesh(socketGeo, mats.mouth);
-  socketL.position.set(-0.055, 0.16, 0.128);
-  socketR.position.set(0.055, 0.16, 0.128);
-  socketL.scale.set(1, 1.25, 0.6);
-  socketR.scale.set(1, 1.25, 0.6);
-  head.add(socketL, socketR);
+  // Нижняя часть лица — скулы и подбородок, уже черепа.
+  const jaw = mesh(new THREE.SphereGeometry(0.074, 18, 14), mats.skin, 0, 0.028, 0.012);
+  jaw.scale.set(0.86, 0.86, 0.9);
+  const chin = mesh(new THREE.SphereGeometry(0.032, 12, 10), mats.skin, 0, -0.018, 0.036);
+  chin.scale.set(0.9, 0.72, 0.8);
 
-  const eyeGeo = new THREE.SphereGeometry(jumpscare ? 0.026 : 0.014, 10, 8);
-  const eyeL = new THREE.Mesh(eyeGeo, mats.eye);
-  const eyeR = new THREE.Mesh(eyeGeo, mats.eye);
-  eyeL.position.set(-0.055, 0.158, 0.155);
-  eyeR.position.set(0.055, 0.158, 0.155);
-  head.add(eyeL, eyeR);
+  // Глазницы: две раздельные чёрные впадины (не одна маска).
+  const sockets = new THREE.Group();
+  const eyes = [];
+  for (const side of [-1, 1]) {
+    const sx = side * 0.047;
 
-  // Нос — почти отсутствует, только тень.
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.055, 6), mats.skin);
-  nose.rotation.x = Math.PI * 0.52;
-  nose.position.set(0, 0.105, 0.16);
-  head.add(nose);
+    const shadow = mesh(new THREE.SphereGeometry(0.031, 14, 12), mats.void, sx, 0.078, 0.066);
+    shadow.scale.set(1, 1.1, 0.55);
+    sockets.add(shadow);
 
-  // Рот: у скримера — разинутая пасть с зубами.
-  if (jumpscare) {
-    const maw = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 12), mats.mouth);
-    maw.scale.set(1.1, 1.5, 0.7);
-    maw.position.set(0, -0.005, 0.135);
-    head.add(maw);
-    for (let i = 0; i < 7; i += 1) {
-      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.035, 4), new THREE.MeshBasicMaterial({ color: 0xd8d2bd }));
-      tooth.position.set(-0.06 + i * 0.02, 0.045, 0.175);
-      tooth.rotation.x = Math.PI;
-      head.add(tooth);
-      const lower = tooth.clone();
-      lower.position.y = -0.05;
-      lower.rotation.x = 0;
-      head.add(lower);
+    const white = mesh(new THREE.SphereGeometry(0.0158, 12, 10), mats.eyeWhite, sx, 0.078, 0.077);
+    white.scale.set(1, 1, 0.7);
+    sockets.add(white);
+
+    const pupil = mesh(new THREE.SphereGeometry(0.0088, 10, 8), mats.eye, sx, 0.078, 0.089);
+    pupil.scale.set(1, 1, 0.5);
+    sockets.add(pupil);
+    eyes.push(pupil);
+  }
+
+  // Нос — узкий клин.
+  const nose = mesh(new THREE.ConeGeometry(0.016, 0.058, 7), mats.skinShade, 0, 0.048, 0.098);
+  nose.rotation.x = Math.PI * 0.53;
+  nose.scale.set(0.95, 1, 0.7);
+
+  // Рот — тонкая тёмная щель.
+  const mouth = mesh(new THREE.SphereGeometry(0.026, 16, 12), mats.void, 0, 0.012, 0.078);
+  mouth.scale.set(0.95, 0.28, 0.34);
+  const lip = mesh(new THREE.SphereGeometry(0.03, 14, 10), mats.skinShade, 0, -0.004, 0.074);
+  lip.scale.set(0.9, 0.18, 0.3);
+
+  // Волосы: шапка на затылок, чёлка, пряди по бокам до подбородка.
+  const hair = new THREE.Group();
+  // Шапка только на макушку: лицо остаётся открытым.
+  const cap = mesh(
+    new THREE.SphereGeometry(0.105, 22, 18, 0, Math.PI * 2, 0, Math.PI * 0.40),
+    mats.hair, 0, 0.088, -0.006
+  );
+  cap.scale.set(1.03, 1.16, 1.05);
+  hair.add(cap);
+
+  // Объём на затылке и по бокам — «каре» вокруг лица.
+  const backMass = mesh(new THREE.SphereGeometry(0.095, 18, 14), mats.hair, 0, 0.05, -0.05);
+  backMass.scale.set(1.0, 1.3, 0.74);
+  hair.add(backMass);
+  for (const side of [-1, 1]) {
+    const sideMass = mesh(new THREE.SphereGeometry(0.052, 14, 12), mats.hair, side * 0.082, 0.06, -0.012);
+    sideMass.scale.set(0.72, 1.9, 1.35);
+    hair.add(sideMass);
+  }
+
+  // Чёлка: короткие пряди поперёк лба, до бровей.
+  for (let i = 0; i < 9; i += 1) {
+    const t = (i / 8 - 0.5) * 2;
+    const len = 0.045 + Math.random() * 0.02;
+    const lock = mesh(new THREE.CapsuleGeometry(0.009, len, 3, 5), mats.hair,
+      t * 0.072, 0.145 - len * 0.35, 0.058 - Math.abs(t) * 0.016);
+    lock.rotation.z = t * 0.28;
+    lock.rotation.x = 0.12;
+    hair.add(lock);
+  }
+
+  // Боковые пряди — до плеч, неровные.
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 4; i += 1) {
+      const len = 0.2 + Math.random() * 0.22;
+      const strand = mesh(new THREE.CapsuleGeometry(0.012, len, 3, 5), mats.hair,
+        side * (0.072 + i * 0.016), 0.0 - len * 0.42, -0.01 - i * 0.012);
+      strand.rotation.z = side * (0.1 + i * 0.05);
+      strand.rotation.x = -0.06 - i * 0.04;
+      hair.add(strand);
     }
-  } else {
-    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.014, 0.02), mats.mouth);
-    mouth.position.set(0, 0.035, 0.165);
-    head.add(mouth);
   }
 
-  // Волосы: шапка и пряди, закрывающие лицо.
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.163, 16, 14, 0, Math.PI * 2, 0, Math.PI * 0.66), mats.hair);
-  cap.position.y = 0.15;
-  cap.scale.set(0.94, 1.2, 1.0);
-  head.add(cap);
+  // Шея — короткая, в тени.
+  const neck = mesh(new THREE.CylinderGeometry(0.037, 0.048, 0.07, 10), mats.skinShade, 0, -0.05, 0.002);
 
-  const bun = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10), mats.hair);
-  bun.position.set(0, 0.17, -0.16);
-  head.add(bun);
+  head.add(back, skull, jaw, chin, sockets, nose, mouth, lip, neck, hair);
 
-  const strands = [
-    [-0.1, 0.05, 0.12, 0.3],
-    [0.09, 0.02, 0.13, -0.35],
-    [0.0, 0.0, 0.15, 0.1],
-    [-0.05, 0.08, 0.14, 0.55],
-    [0.13, 0.09, 0.1, -0.6]
-  ];
-  for (const [x, y, z, tilt] of strands) {
-    const strand = new THREE.Mesh(new THREE.PlaneGeometry(0.035, 0.3), mats.hair);
-    strand.position.set(x, y - 0.04, z);
-    strand.rotation.set(0.1, tilt * 0.4, tilt * 0.15);
-    head.add(strand);
+  if (jumpscare) {
+    // Для скримера: рот раскрыт, глаза распахнуты, из глазниц течёт.
+    mouth.scale.set(1.05, 1.45, 0.55);
+    mouth.position.set(0, 0.006, 0.072);
+    for (const e of eyes) e.scale.set(0.55, 0.55, 0.45);
+    for (const side of [-1, 1]) {
+      const tear = mesh(new THREE.CapsuleGeometry(0.004, 0.085, 3, 5), mats.blood,
+        side * 0.046, 0.03, 0.083);
+      tear.rotation.z = side * 0.06;
+      head.add(tear);
+    }
+    head.userData.mouth = mouth;
   }
-
+  head.userData.eyes = eyes;
   return head;
 }
 
-/* --------------------------- рука --------------------------- */
+/* --------------------------- руки --------------------------- */
 
-function makeArm(mats, side, pivotY = 1.52) {
-  const arm = new THREE.Group(); // точка вращения — плечо
-  arm.position.set(side * 0.2, pivotY, 0);
+function makeHand(mats, scale = 1) {
+  const hand = new THREE.Group();
+  const palm = mesh(new THREE.BoxGeometry(0.07, 0.088, 0.03), mats.skin, 0, 0, 0);
+  palm.scale.setScalar(scale);
+  hand.add(palm);
 
-  const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.42, 4, 8), mats.dress);
-  upper.position.y = -0.25;
-  upper.castShadow = true;
-  arm.add(upper);
-
-  const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), mats.dress);
-  elbow.position.y = -0.48;
-  arm.add(elbow);
-
-  const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.038, 0.42, 4, 8), mats.skin);
-  fore.position.y = -0.72;
-  fore.castShadow = true;
-  arm.add(fore);
-
-  // Кисть.
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.11, 0.035), mats.skin);
-  palm.position.y = -0.98;
-  arm.add(palm);
-
-  // Слишком длинные пальцы.
-  for (let i = 0; i < 5; i += 1) {
-    const len = 0.11 + Math.random() * 0.05;
-    const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.008, len, 3, 6), mats.skin);
-    finger.position.set(-0.03 + i * 0.015, -1.04 - len / 2, 0.005);
-    finger.rotation.z = (i - 2) * 0.06;
-    arm.add(finger);
+  for (let i = 0; i < 4; i += 1) {
+    const len = (0.066 + Math.random() * 0.022) * scale;
+    const finger = mesh(new THREE.CapsuleGeometry(0.0095 * scale, len, 3, 6), mats.skin,
+      (-0.021 + i * 0.014) * scale, -(0.045 + len / 2) * scale, 0.002);
+    finger.rotation.z = (i - 1.5) * 0.06;
+    hand.add(finger);
   }
+  const thumb = mesh(new THREE.CapsuleGeometry(0.0085 * scale, 0.06 * scale, 3, 6), mats.skin,
+    -0.032 * scale, -0.03 * scale, 0.008);
+  thumb.rotation.z = 0.85;
+  hand.add(thumb);
+  return hand;
+}
 
+function makeArm(mats, side, pivotY = 1.5) {
+  const arm = new THREE.Group();
+  arm.position.set(side * 0.178, pivotY, 0);
+
+  const upper = mesh(new THREE.CapsuleGeometry(0.042, 0.24, 4, 10), mats.dress, 0, -0.17, 0);
+  upper.scale.set(1, 1, 0.92);
+  const elbow = mesh(new THREE.SphereGeometry(0.036, 12, 10), mats.dress, 0, -0.315, 0);
+  const forearm = mesh(new THREE.CylinderGeometry(0.031, 0.023, 0.3, 10), mats.skin, 0, -0.47, 0);
+  const cuff = mesh(new THREE.CylinderGeometry(0.036, 0.033, 0.05, 10), mats.dress, 0, -0.335, 0);
+
+  const hand = makeHand(mats, 1);
+  hand.position.set(0, -0.64, 0.004);
+  hand.rotation.x = 0.12;
+
+  arm.add(upper, cuff, elbow, forearm, hand);
+  arm.userData.hand = hand;
   return arm;
 }
 
 /* --------------------------- фигура --------------------------- */
 
 export function createDutyFigure({ ghost = false } = {}) {
-  const g = new THREE.Group();
-  const parts = {};
   const mats = makeMaterials(ghost);
+  const group = new THREE.Group();
+  group.name = ghost ? "apparition" : "duty";
 
-  // Платье-колокол: она не идёт, а перетекает по коридору.
-  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.44, 1.15, 18, 1, true), mats.dress);
-  skirt.position.y = 0.58;
-  skirt.castShadow = true;
-  g.add(skirt);
-  parts.skirt = skirt;
+  // Платье: от пола до талии, с вертикальными складками и подолом.
+  const skirt = mesh(latheGeometry([
+    [0.0, 0.3],
+    [0.02, 0.315],
+    [0.06, 0.318],
+    [0.26, 0.29],
+    [0.5, 0.245],
+    [0.74, 0.205],
+    [0.94, 0.178],
+    [1.04, 0.168]
+  ], 44, 11, 0.045), mats.dress, 0, 0, 0);
+  skirt.scale.set(1, 1, 0.82);
 
-  const hem = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.02, 6, 20), mats.dress);
-  hem.rotation.x = Math.PI / 2;
-  hem.position.y = 0.01;
-  g.add(hem);
+  // Торс: от талии к плечам, спереди площе.
+  const torso = mesh(latheGeometry([
+    [0, 0.168],
+    [0.1, 0.158],
+    [0.24, 0.163],
+    [0.36, 0.172],
+    [0.46, 0.19],
+    [0.52, 0.196]
+  ], 34, 9, 0.028), mats.dress, 0, 1.0, 0);
+  torso.scale.set(1, 1, 0.74);
 
-  // Торс.
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.4, 6, 12), mats.dress);
-  torso.position.y = 1.32;
-  torso.scale.set(1, 1, 0.78);
-  torso.castShadow = true;
-  g.add(torso);
-  parts.torso = torso;
-
-  // Воротник и пуговицы.
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.06, 12), mats.dress);
-  collar.position.y = 1.55;
-  g.add(collar);
-  for (let i = 0; i < 4; i += 1) {
-    const button = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 6), mats.hair);
-    button.position.set(0, 1.26 - i * 0.12, 0.145);
-    g.add(button);
+  // Плечи и воротник.
+  const shoulders = new THREE.Group();
+  for (const side of [-1, 1]) {
+    const s = mesh(new THREE.SphereGeometry(0.055, 14, 12), mats.dress, side * 0.168, 1.5, 0);
+    s.scale.set(1, 0.9, 0.85);
+    shoulders.add(s);
   }
+  const collar = mesh(new THREE.CylinderGeometry(0.052, 0.064, 0.05, 12), mats.dressDeep, 0, 1.535, 0.004);
+  collar.scale.set(1, 1, 0.9);
 
-  // Шея.
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.16, 8), mats.skin);
-  neck.position.y = 1.63;
-  g.add(neck);
+  // Пояс — линия талии.
+  const belt = mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.05, 28), mats.dressDeep, 0, 1.0, 0);
+  belt.scale.set(1, 1, 0.8);
 
-  // Голова на своей группе — чтобы enemy.js мог крутить её отдельно.
   const head = makeHead(mats);
-  head.position.set(0, 1.66, 0);
-  g.add(head);
-  parts.head = head;
+  head.position.set(0, 1.585, 0.004);
+  head.scale.setScalar(1.08);
 
-  // Руки — группы в плечах.
   const armL = makeArm(mats, -1);
   const armR = makeArm(mats, 1);
-  g.add(armL, armR);
-  parts.armL = armL;
-  parts.armR = armR;
 
-  // Ведомость в правой руке: она всё ещё на смене.
-  const clipboard = new THREE.Mesh(
-    new THREE.BoxGeometry(0.17, 0.24, 0.015),
-    new THREE.MeshStandardMaterial({ color: 0x6b5f43, roughness: 0.9 })
-  );
-  clipboard.position.set(0.01, -1.02, 0.05);
-  clipboard.rotation.x = -0.35;
-  armR.add(clipboard);
+  group.add(skirt, torso, belt, shoulders, collar, head, armL, armR);
 
-  if (!ghost) {
-    // Бейдж.
-    const badge = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.07, 0.05),
-      new THREE.MeshBasicMaterial({ color: 0xc8bfa2 })
-    );
-    badge.position.set(0.1, 1.36, 0.13);
-    badge.rotation.y = -0.25;
-    g.add(badge);
-  }
-
-  parts.eyeMat = mats.eye;
-  parts.mats = mats;
-  g.userData.parts = parts;
-  return g;
+  group.userData.parts = {
+    skirt,
+    torso,
+    head,
+    armL,
+    armR,
+    eyeMat: mats.eye,
+    mats
+  };
+  return group;
 }
 
 /* --------------------------- скример --------------------------- */
 
-/* --------------------------- кисть --------------------------- */
-
-function makeHand(mats) {
-  const hand = new THREE.Group();
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.13, 0.04), mats.skin);
-  hand.add(palm);
-  for (let i = 0; i < 5; i += 1) {
-    const len = 0.16 + Math.random() * 0.06;
-    const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.009, len, 3, 6), mats.skin);
-    finger.position.set(-0.032 + i * 0.016, 0.07 + len / 2, 0.002);
-    finger.rotation.z = (i - 2) * 0.13;
-    hand.add(finger);
-  }
-  return hand;
-}
-
-/**
- * Голова и тянущиеся руки для скримера. Лицом в +Z.
- * Возвращает {group, head, hands} — анимацией управляет jumpscare.js.
- */
 export function createJumpscareRig() {
   const mats = makeMaterials(false);
-  mats.eye = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const group = new THREE.Group();
 
   const head = makeHead(mats, { jumpscare: true });
-  head.scale.setScalar(1.55);
-  head.position.y = -0.24;
+  head.scale.setScalar(1.5);
+  head.position.set(0, -0.06, 0);
   group.add(head);
 
+  // Руки, тянущиеся к лицу с двух сторон кадра.
   const hands = new THREE.Group();
   for (const side of [-1, 1]) {
-    const hand = makeHand(mats);
-    hand.scale.setScalar(1.8);
-    hand.position.set(side * 0.46, -0.42, 0.12);
-    hand.rotation.z = side * 0.42;
-    hand.rotation.x = -0.35;
-    hands.add(hand);
+    const arm = makeArm(mats, side, 0);
+    arm.scale.setScalar(1.25);
+    arm.position.set(side * 0.3, 0.16, 0.1);
+    arm.rotation.x = -1.05;
+    arm.rotation.z = side * 0.5;
+    hands.add(arm);
   }
   group.add(hands);
 

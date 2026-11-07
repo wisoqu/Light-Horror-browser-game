@@ -268,22 +268,91 @@ body:has(#hud:not(.hidden)) #crosshair {
 
 /* ---------- субтитры ---------- */
 
+/* Служебная строка: мелкий моноширинный статус внизу слева, без «прозы». */
 #subtitles {
   position: fixed;
-  left: 50%;
-  bottom: 52px;
-  width: min(86%, 760px);
-  min-height: 30px;
-  transform: translateX(-50%);
-  color: rgba(242, 236, 220, 0.96);
-  font-family: var(--serif);
-  font-size: clamp(14px, 1.65vw, 20px);
-  font-style: italic;
-  line-height: 1.35;
-  text-align: center;
-  text-shadow: 0 2px 10px #000, 0 0 22px rgba(0, 0, 0, 0.9);
+  left: 18px;
+  bottom: 16px;
+  max-width: min(46vw, 420px);
+  padding: 5px 9px;
+  border-left: 2px solid rgba(217, 207, 184, 0.4);
+  background: rgba(6, 7, 9, 0.55);
+  color: rgba(234, 228, 209, 0.82);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+  text-transform: lowercase;
+  text-shadow: 0 1px 6px #000;
   pointer-events: none;
   z-index: 11;
+}
+
+#subtitles:empty {
+  display: none;
+}
+
+/* Записка: бумажная карточка, читается как документ, а не как субтитр. */
+#note {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: min(88vw, 520px);
+  transform: translate(-50%, -50%) rotate(-0.7deg);
+  padding: 26px 30px 22px;
+  background:
+    linear-gradient(180deg, rgba(219, 210, 186, 0.97), rgba(196, 186, 160, 0.97));
+  border: 1px solid rgba(90, 80, 62, 0.55);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.72), inset 0 0 40px rgba(120, 104, 78, 0.28);
+  color: #23201a;
+  font-family: "Courier New", var(--mono);
+  pointer-events: none;
+  z-index: 14;
+  animation: noteIn 0.25s ease-out;
+}
+
+#note::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed rgba(90, 80, 62, 0.28);
+  pointer-events: none;
+}
+
+.note-head {
+  display: block;
+  margin-bottom: 12px;
+  color: rgba(90, 60, 40, 0.85);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.note-text {
+  margin: 0 0 16px;
+  font-size: clamp(13px, 1.5vw, 16px);
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+.note-close {
+  display: block;
+  color: rgba(60, 52, 40, 0.6);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+@keyframes noteIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) rotate(-0.7deg);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-0.7deg);
+  }
 }
 
 /* ---------- шкафчик ---------- */

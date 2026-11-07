@@ -83,8 +83,9 @@ export class ScareDirector {
     this.group = new THREE.Group();
     this.group.name = "scares";
 
-    this.timer = 7;
+    this.timer = 16;
     this.cooldowns = {};
+    this.chainTimer = 0;
     this.apparition = null;
     this.windowScare = null;
     this.chalkScare = null;
@@ -105,8 +106,9 @@ export class ScareDirector {
   }
 
   reset() {
-    this.timer = 7;
+    this.timer = 16;
     this.cooldowns = {};
+    this.chainTimer = 0;
     this.recent = [];
     this.apparition = null;
     this.windowScare = null;
@@ -130,8 +132,27 @@ export class ScareDirector {
 
     this.timer -= dt;
     if (this.timer <= 0) {
-      this.timer = 8 + Math.random() * 7;
+      this.timer = 11 + Math.random() * 8;
       this.pick(ctx);
+    }
+    // Изредка — «двойной» страх: второй удар через пару секунд после первого.
+    if (this.chainTimer > 0) {
+      this.chainTimer -= dt;
+      if (this.chainTimer <= 0) {
+        this.chainTimer = 0;
+        this.pick(ctx, true);
+      }
+    }
+    // Она рядом: фонарь начинает мигать, свет предаёт.
+    this.flickerCooldown = (this.flickerCooldown || 0) - dt;
+    if (ctx.enemyDist > 0 && ctx.enemyDist < 6.5 && this.flickerCooldown <= 0) {
+      this.flickerCooldown = 5 + Math.random() * 4;
+      this.audio.flicker();
+      for (const lamp of this.world.lamps || []) {
+        if (Math.hypot(lamp.x - this.player.x, lamp.z - this.player.z) < 8) {
+          lamp.darkUntil = performance.now() / 1000 + 0.12 + Math.random() * 0.2;
+        }
+      }
     }
 
     this.updateApparition(dt, time);
@@ -142,7 +163,7 @@ export class ScareDirector {
 
   /* ------------------------ выбор события ------------------------ */
 
-  pick(ctx) {
+  pick(ctx, chained = false) {
     const options = [
       { kind: "apparition", weight: 3, cooldown: 22 },
       { kind: "window", weight: 2, cooldown: 26 },
@@ -170,6 +191,7 @@ export class ScareDirector {
       }
     }
 
+    if (!chained && Math.random() < 0.22) this.chainTimer = 1.4 + Math.random() * 1.6;
     this.cooldowns[chosen.kind] = chosen.cooldown;
     this.lastKind = chosen.kind;
     for (const key of Object.keys(this.cooldowns)) {
@@ -210,16 +232,12 @@ export class ScareDirector {
     if (this.ghost) {
       this.ghost.visible = true;
       this.ghost.position.set(place.x, 0, place.z);
-      this.ghost.rotation.y = Math.atan2(
-        -(this.player.x - place.x),
-        -(this.player.z - place.z)
-      );
+      this.ghost.rotation.y = Math.atan2(this.player.x - place.x, this.player.z - place.z);
       for (const m of this.ghostMats) m.opacity = 0;
     }
     this.audio.stinger();
     this.fx.shake(5);
     this.fx.flash(0.22);
-    this.say("В конце коридора кто-то стоит. Он не дышит.", 3);
     return this.apparition;
   }
 
@@ -233,12 +251,21 @@ export class ScareDirector {
       if (this.ghost) this.ghost.visible = false;
       return;
     }
-    const alpha = Math.sin(Math.min(1, progress) * Math.PI) * 0.75;
+    const alpha = Math.sin(Math.min(1, progress) * Math.PI) * 0.8;
     for (const m of this.ghostMats) m.opacity = alpha;
     if (this.ghost) {
       this.ghost.position.y = Math.sin(time * 2.1) * 0.05;
-      // Медленно поворачивается, не отрывая взгляда.
-      this.ghost.rotation.y += dt * 0.06;
+      // Идёт прямо на игрока — медленно, но неотвратимо.
+      const dx = this.player.x - this.ghost.position.x;
+      const dz = this.player.z - this.ghost.position.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const step = Math.min(d - 1.1, 2.1 * dt);
+      if (step > 0) {
+        this.ghost.position.x += (dx / d) * step;
+        this.ghost.position.z += (dz / d) * step;
+        this.ghost.rotation.y = Math.atan2(dx, dz);
+      }
+      this.ghost.rotation.z = Math.sin(time * 3.1) * 0.02;
     }
   }
 
@@ -273,7 +300,6 @@ export class ScareDirector {
     this.windowScare = { t: 0, life: 1.6 };
     this.audio.thud();
     this.fx.shake(3);
-    this.say("В стекле отразилось что-то, чего нет в коридоре.", 3.4);
     return this.windowScare;
   }
 
@@ -304,7 +330,6 @@ export class ScareDirector {
     this.audio.flicker();
     this.audio.thud();
     this.fx.shake(4);
-    this.say("Свет гаснет по одной лампе — кто-то идёт навстречу.", 3.2);
     return true;
   }
 
@@ -337,7 +362,6 @@ export class ScareDirector {
     this.audio.paper();
     this.audio.whisper();
     this.fx.shake(2);
-    this.say(`На доске проступает мел: «${text}».`, 3.6);
     return this.chalkScare;
   }
 
@@ -372,7 +396,6 @@ export class ScareDirector {
     this.audio.locker(true);
     this.audio.thud();
     this.fx.shake(2);
-    this.say("Шкафчик рядом дёрнулся изнутри.", 2.4);
     return this.lockerScare;
   }
 
@@ -393,13 +416,12 @@ export class ScareDirector {
 
   whisper() {
     this.audio.whisper();
-    const lines = [
+    const _lines = [
       "Шёпот прямо в ухо: «Ещё немного, и я тебя найду».",
       "Кто-то повторяет за тобой шаги. С отставанием в один.",
       "В динамике щёлкнуло, и гимн заиграл наоборот.",
       "Ты слышишь, как в темноте перелистывают журнал."
     ];
-    this.say(lines[Math.floor(Math.random() * lines.length)], 3.8);
     return true;
   }
 
@@ -408,7 +430,6 @@ export class ScareDirector {
     this.audio.noise(0.4, { peak: 0.09, freq: 300, q: 1.4, filter: "bandpass", slideTo: 160 });
     this.fx.shake(7);
     this.fx.flash(0.12);
-    this.say("За спиной кто-то сделал шаг. Всего один.", 2.8);
     return true;
   }
 
@@ -416,7 +437,6 @@ export class ScareDirector {
     this.audio.thud();
     this.audio.doorRattle();
     this.fx.shake(9);
-    this.say("Дверь хлопнула так, что задрожал пол.", 2.4);
     return true;
   }
 }

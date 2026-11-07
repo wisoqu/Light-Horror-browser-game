@@ -45,7 +45,6 @@ const CONFIG = {
 
 const canvas = document.getElementById("game");
 const hudEl = document.getElementById("hud");
-const noiseMeter = document.getElementById("noiseMeter");
 const panicMeter = document.getElementById("panicMeter");
 const batteryMeter = document.getElementById("batteryMeter");
 const staminaMeter = document.getElementById("staminaMeter");
@@ -56,6 +55,7 @@ const interactEl = document.getElementById("interact");
 const ringFg = document.getElementById("ringFg");
 const interactLabel = document.getElementById("interactLabel");
 const subtitlesEl = document.getElementById("subtitles");
+const noteEl = document.getElementById("note");
 const slatsEl = document.getElementById("slats");
 const breathHintEl = document.getElementById("breathHint");
 const lockHintEl = document.getElementById("lockHint");
@@ -195,6 +195,8 @@ let gameState = "title"; // title | play | pause | dead | win
 let lookMode = "lock"; // lock | drag
 let dragging = false;
 let subtitleTimer = 0;
+let impactDone = false;
+let noteTimer = 0;
 let shake = 0;
 let flash = 0;
 let deadTimer = 0;
@@ -314,6 +316,7 @@ function resetGame() {
   ghost.visible = false;
   rattleCooldown = 0;
   subtitlesEl.textContent = "";
+  if (noteEl) noteEl.classList.add("hidden");
   slatsEl.classList.add("hidden");
   breathHintEl.classList.add("hidden");
   interactEl.classList.add("hidden");
@@ -380,8 +383,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyM" && gameState === "play") {
     muted = !muted;
     audio.setMaster(muted);
-    setMessage(muted ? "Звук выключен." : "Звук включён.", 1.4);
-  }
+    }
 });
 
 window.addEventListener("keyup", (e) => {
@@ -450,7 +452,6 @@ function startGame() {
   lookMode = lookMode === "drag" ? "drag" : "lock";
   requestLook();
   if (lookMode === "lock") showLockHint("Esc — пауза · M — звук");
-  setMessage("Смена началась. Найди 4 щитка и не шуми.", 4.2);
 }
 
 function pauseGame() {
@@ -476,6 +477,7 @@ function killPlayer(reason) {
   if (gameState !== "play") return;
   gameState = "dead";
   deadTimer = 0;
+  impactDone = false;
   shake = 24;
   flash = 0.9;
   audio.scream();
@@ -500,9 +502,22 @@ restartButton.addEventListener("click", restartGame);
 againButton.addEventListener("click", restartGame);
 resumeButton.addEventListener("click", resumeGame);
 
+/** Короткая служебная строка внизу: только факты, без «атмосферы». */
 function setMessage(text, seconds = 3.2) {
   subtitlesEl.textContent = text;
   subtitleTimer = seconds;
+}
+
+/** Записка — отдельная бумажная карточка, а не субтитр. */
+function showNote(text, index) {
+  noteEl.innerHTML = `<span class="note-head">записка ${index} / 5</span><p class="note-text">${text}</p><span class="note-close">E — убрать</span>`;
+  noteEl.classList.remove("hidden");
+  noteTimer = 9;
+}
+
+function hideNote() {
+  noteEl.classList.add("hidden");
+  noteTimer = 0;
 }
 
 function formatTime(t) {
@@ -550,7 +565,7 @@ function handleInteractionInput(dt) {
     nearBatt.item.group.visible = false;
     player.battery = Math.min(100, player.battery + CONFIG.batteryPickup);
     audio.pickup();
-    setMessage(`Батарейка (+${CONFIG.batteryPickup}%)`, 1.8);
+    setMessage(`фонарь +${CONFIG.batteryPickup}%`, 1.4);
   }
 
   /* --- шкафчик: E спрятаться / выйти --- */
@@ -582,12 +597,16 @@ function handleInteractionInput(dt) {
   }
 
   /* --- записки --- */
+  if (pressed.has("KeyE") && noteTimer > 0) {
+    hideNote();
+    return;
+  }
   if (pressed.has("KeyE") && nearNote.item && !player.hidden && !nearFuse.item) {
     nearNote.item.found = true;
     nearNote.item.mesh.visible = false;
     notesFound += 1;
     audio.paper();
-    setMessage(`Записка (${notesFound}/5): ${nearNote.item.text}`, 7);
+    showNote(nearNote.item.text, notesFound);
     return;
   }
 
@@ -630,7 +649,6 @@ function handleInteractionInput(dt) {
       promptEl.classList.remove("hidden");
       if (rattleCooldown <= 0 && pressed.has("KeyE")) {
         audio.doorRattle();
-        setMessage("Дверь не поддаётся. Сначала свет.", 2.4);
         rattleCooldown = 1.6;
       }
     } else {
@@ -675,15 +693,13 @@ function fixFuse(fuse) {
   audio.spark();
   fuse.led.material.color.setHex(0x51d06a);
   fuse.lever.rotation.z = -0.7;
-  setMessage(`Щиток щёлкнул: ${fuse.label}. Осталось ${4 - collected}.`, 3.6);
 
-  // Она слышит щелчок.
-  enemy.hunt(player.x, player.z, 5 + collected * 1.4);
+  // Свет вернулся — она это чувствует и идёт к щитку.
+  enemy.hunt(player.x, player.z, 3.6 + collected * 0.9);
   enemy.sawPlayerHide = false;
 
   if (collected >= 4) {
     world.exitSignMat.color.setHex(0x3ade6e);
-    setMessage("Все щитки в сети. Дверь на входе открыта. Беги — она теперь знает.", 5.5);
     shake = 14;
     audio.stinger();
   }
@@ -790,7 +806,7 @@ function handlePlayer(dt) {
   }
   if (player.battery <= 0) player.flashOn = false;
   if (player.flashOn && !player.hidden) player.battery = Math.max(0, player.battery - CONFIG.batteryDrain * dt);
-  if (player.battery <= 0 && pressed.has("KeyF")) setMessage("Батарейка села.", 2);
+  if (player.battery <= 0 && pressed.has("KeyF")) setMessage("фонарь · 0%", 1.6);
 
   /* --- шум --- */
   let noiseTarget;
@@ -816,7 +832,6 @@ function handlePlayer(dt) {
         player.suppressHold = 2.2;
         audio.gasp();
         noiseBoost(0.9, 1.1);
-        setMessage("Ты сорвался и громко вдохнул!", 2.2);
         hearAtPlayer(1.0);
       }
     } else {
@@ -868,7 +883,11 @@ function handleEvents(dt) {
   }
 
   // [DESIGN] все случайные события — в src/scares.js
-  scares.update(dt, { collected });
+  scares.update(dt, {
+    collected,
+    enemyDist: Math.hypot(enemy.x - player.x, enemy.z - player.z),
+    hunted: enemy.state === "hunt"
+  });
 
   if (blackoutTimer > 0) blackoutTimer -= dt;
   if (flickerTimer > 0) flickerTimer -= dt;
@@ -964,7 +983,6 @@ function updateDust(dt) {
 /* --------------------------- HUD --------------------------- */
 
 function updateHud() {
-  noiseMeter.style.width = `${Math.round(player.noise * 100)}%`;
   panicMeter.style.width = `${Math.round(player.panic * 100)}%`;
   batteryMeter.style.width = `${Math.round(player.battery)}%`;
   staminaMeter.style.width = `${Math.round(player.stamina)}%`;
@@ -981,6 +999,10 @@ function updateHud() {
 function updateCameraAndFx(dt, time) {
   subtitleTimer -= dt;
   if (subtitleTimer <= 0 && subtitlesEl.textContent) subtitlesEl.textContent = "";
+  if (noteTimer > 0) {
+    noteTimer -= dt;
+    if (noteTimer <= 0) hideNote();
+  }
 
   shake = Math.max(0, shake - dt * 18);
   flash = Math.max(0, flash - dt * 1.8);
@@ -1033,6 +1055,10 @@ function updateDead(dt) {
   player.panic = Math.min(1, player.panic + dt * 0.5);
 
   jumpscare.update(dt);
+  if (!impactDone && deadTimer > 0.2) {
+    impactDone = true;
+    audio.impact();
+  }
   if (deadTimer > 0.42 && !jumpscareEl.classList.contains("active")) {
     jumpscareEl.classList.add("active");
   }
