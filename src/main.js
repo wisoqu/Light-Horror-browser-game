@@ -31,7 +31,7 @@ const CONFIG = {
   eyeHeight: 1.6,
   crouchEye: 1.02,
   mouseSens: 0.0021,
-  batteryDrain: 1.2, // % в секунду
+  batteryDrain: 0.85, // % в секунду
   batteryPickup: 40,
   spotIntensity: 46,
   pointIntensity: 16,
@@ -58,6 +58,7 @@ const subtitlesEl = document.getElementById("subtitles");
 const noteEl = document.getElementById("note");
 const slatsEl = document.getElementById("slats");
 const breathHintEl = document.getElementById("breathHint");
+const breathBarEl = document.getElementById("breathBar");
 const lockHintEl = document.getElementById("lockHint");
 const flashEl = document.getElementById("flash");
 const bloodEl = document.getElementById("blood");
@@ -707,7 +708,7 @@ function exitLocker() {
   player.breathHold = 0;
   player.flashOn = player.wasFlashOn && player.battery > 0;
   // Она больше не знает, где ты.
-  enemy.sawPlayerHide = false;
+  enemy.forgetHidden();
   audio.locker(false);
   noiseBoost(0.3, 0.6);
   slatsEl.classList.add("hidden");
@@ -729,7 +730,7 @@ function fixFuse(fuse) {
 
   // Свет вернулся — она это чувствует и идёт к щитку.
   enemy.hunt(player.x, player.z, 3.6 + collected * 0.9);
-  enemy.sawPlayerHide = false;
+  enemy.forgetHidden();
 
   if (collected >= 4) {
     world.exitSignMat.color.setHex(0x3ade6e);
@@ -816,7 +817,7 @@ function handlePlayer(dt) {
     const len = Math.hypot(mx, mz) || 1;
     mx /= len;
     mz /= len;
-    const panicSlow = player.panic > 0.82 ? 0.86 : 1;
+    const panicSlow = player.panic > 0.82 ? 0.94 : 1;
     movePlayer(mx * speed * panicSlow * dt, mz * speed * panicSlow * dt);
     player.speed = speed;
 
@@ -902,7 +903,9 @@ function hearAtPlayer(strength) {
   if (distE < radius) {
     // Память достаточно длинная, чтобы добраться до шкафчика.
     enemy.hear(player.x, player.z, Math.max(3.6, distE / 2.0 + 1.5));
-    enemy.sawPlayerHide = true;
+    enemy._hideX = player.x;
+    enemy._hideZ = player.z;
+    enemy.markHidden(8);
   }
 }
 
@@ -1016,6 +1019,24 @@ function updateDust(dt) {
 /* --------------------------- HUD --------------------------- */
 
 function updateHud() {
+  // Дыхание: пока сидишь в шкафчике, видно, сколько осталось.
+  if (player.hidden) {
+    breathHintEl.classList.remove("hidden");
+    const full = Math.min(100, (player.breathHold / 7) * 100);
+    if (breathBarEl) breathBarEl.style.width = `${player.holdingBreath ? full : 0}%`;
+    const danger = enemy.opening > 0;
+    breathHintEl.classList.toggle("danger", danger);
+    const label = breathHintEl.querySelector(".breath-label");
+    if (label) {
+      label.innerHTML = danger
+        ? "ОНА У ДВЕРЦЫ · зажми <b>B</b>"
+        : player.holdingBreath
+          ? "держишь дыхание…"
+          : "зажми <b>B</b> — задержать дыхание";
+    }
+  } else {
+    breathHintEl.classList.remove("danger");
+  }
   panicMeter.style.width = `${Math.round(player.panic * 100)}%`;
   batteryMeter.style.width = `${Math.round(player.battery)}%`;
   staminaMeter.style.width = `${Math.round(player.stamina)}%`;

@@ -71,11 +71,35 @@ export function hasLineOfSight(ax, az, bx, bz) {
   return true;
 }
 
-/** BFS: первый шаг от клетки к клетке (в координатах мира). */
-export function nextStepWorld(fromX, fromZ, toX, toZ) {
-  const start = cellAt(fromX, fromZ);
-  const goal = cellAt(toX, toZ);
-  const key = (x, y) => `${x},${y}`;
+/* Клетки, заставленные мебелью. Заполняется при сборке школы: без этого
+   поиск пути вёл дежурную прямо в стол, и она застревала. */
+let NAV_BLOCKED = null;
+
+function navBlockedKey(x, y) {
+  return `${x},${y}`;
+}
+
+function cellHasFurniture(x, y) {
+  return NAV_BLOCKED ? NAV_BLOCKED.has(navBlockedKey(x, y)) : false;
+}
+
+/** Прямой путь свободен: ни стен, ни мебели. */
+export function clearPathWorld(ax, az, bx, bz) {
+  const dist = Math.hypot(bx - ax, bz - az);
+  const steps = Math.max(1, Math.ceil(dist / 0.35));
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps;
+    const x = ax + (bx - ax) * t;
+    const z = az + (bz - az) * t;
+    if (isWallWorld(x, z)) return false;
+    if (cellHasFurniture(Math.floor(x / TILE), Math.floor(z / TILE))) return false;
+  }
+  return true;
+}
+
+/** BFS по клеткам: первый шаг к цели. furniture — обходить мебель или нет. */
+function bfsStep(start, goal, furniture) {
+  const key = navBlockedKey;
   const queue = [start];
   const cameFrom = new Map([[key(start.x, start.y), null]]);
   let found = false;
@@ -91,12 +115,14 @@ export function nextStepWorld(fromX, fromZ, toX, toZ) {
       const nextKey = key(next.x, next.y);
       if (cameFrom.has(nextKey)) continue;
       if (isWallCell(next.x, next.y)) continue;
+      // Цель можно занять, даже если там мебель: она подойдёт вплотную.
+      if (furniture && cellHasFurniture(next.x, next.y) && nextKey !== key(goal.x, goal.y)) continue;
       cameFrom.set(nextKey, current);
       queue.push(next);
     }
   }
 
-  if (!found) return { x: toX, z: toZ };
+  if (!found) return null;
 
   let current = goal;
   let previous = cameFrom.get(key(goal.x, goal.y));
@@ -105,6 +131,14 @@ export function nextStepWorld(fromX, fromZ, toX, toZ) {
     previous = cameFrom.get(key(current.x, current.y));
   }
   return cellCenter(current);
+}
+
+/** BFS: первый шаг от клетки к клетке (в координатах мира). */
+export function nextStepWorld(fromX, fromZ, toX, toZ) {
+  const start = cellAt(fromX, fromZ);
+  const goal = cellAt(toX, toZ);
+  // Сначала обходим мебель, потом (если пути нет) — только стены.
+  return bfsStep(start, goal, true) || bfsStep(start, goal, false) || { x: toX, z: toZ };
 }
 
 /** Кратчайшее расстояние между клетками. */
@@ -135,7 +169,25 @@ export function randomOpenNear(x, z, minDist, maxDist) {
     const dist = minDist + Math.random() * (maxDist - minDist);
     const px = x + Math.cos(angle) * dist;
     const pz = z + Math.sin(angle) * dist;
-    if (!isWallWorld(px, pz) && hasLineOfSight(x, z, px, pz)) return { x: px, z: pz };
+    if (isWallWorld(px, pz)) continue;
+    if (cellHasFurniture(Math.floor(px / TILE), Math.floor(pz / TILE))) continue;
+    if (!hasLineOfSight(x, z, px, pz)) continue;
+    return { x: px, z: pz };
+  }
+  return null;
+}
+
+/** Свободная клетка в отдалении — без требования видимости (для обхода школы). */
+export function randomFarCell(x, z, minDist, maxDist) {
+  const fx = x / TILE;
+  const fz = z / TILE;
+  for (let i = 0; i < 96; i += 1) {
+    const cx = Math.floor(Math.random() * MAP_W);
+    const cy = Math.floor(Math.random() * MAP_H);
+    if (isWallCell(cx, cy) || cellHasFurniture(cx, cy)) continue;
+    const dist = Math.hypot(cx + 0.5 - fx, cy + 0.5 - fz) * TILE;
+    if (dist < minDist || dist > maxDist) continue;
+    return { x: (cx + 0.5) * TILE, z: (cy + 0.5) * TILE };
   }
   return null;
 }
@@ -1049,6 +1101,20 @@ export function buildSchool() {
 
   const entrance = buildEntrance(materials, colliders);
   group.add(entrance.group);
+
+  // Запоминаем клетки, заставленные мебелью: по ним не ходим и их не выбираем целью.
+  const blockedCells = new Set();
+  for (let y = 0; y < MAP_H; y += 1) {
+    for (let x = 0; x < MAP_W; x += 1) {
+      if (isWallCell(x, y)) continue;
+      const cx = (x + 0.5) * TILE;
+      const cz = (y + 0.5) * TILE;
+      const hit = colliders.some((c) => cx > c.minX - 0.12 && cx < c.maxX + 0.12
+        && cz > c.minZ - 0.12 && cz < c.maxZ + 0.12);
+      if (hit) blockedCells.add(navBlockedKey(x, y));
+    }
+  }
+  NAV_BLOCKED = blockedCells;
 
   return {
     group,

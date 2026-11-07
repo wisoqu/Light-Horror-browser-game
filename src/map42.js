@@ -91,16 +91,22 @@ export const DOORS = [
   { x: 27, y: 9, axis: "h", side: "south", room: "library", label: "Библиотека" },
 
   { x: 31, y: 8, axis: "v", side: "east", room: "gym", label: "Спортзал" },
+
+  // Проходные двери между помещениями: дают круговые маршруты, а не тупики.
+  { x: 24, y: 13, axis: "v", side: "east", room: "library", label: "Библиотека" },
+  { x: 34, y: 12, axis: "v", side: "east", room: "lockerB", label: "" },
   { x: 32, y: 10, axis: "h", side: "south", room: "lockerA", label: "" },
   { x: 35, y: 10, axis: "h", side: "south", room: "lockerB", label: "Душ" }
 ];
 
 /** Широкий проём из рекреации в вестибюль (без двери). */
 export const HALL_OPENING = [
+  { x: 17, y: 9 },
   { x: 18, y: 9 },
   { x: 19, y: 9 },
   { x: 20, y: 9 },
-  { x: 21, y: 9 }
+  { x: 21, y: 9 },
+  { x: 22, y: 9 }
 ];
 
 /* --------------------------- сетка --------------------------- */
@@ -174,8 +180,10 @@ export const LOCKER_CELLS = [
   { x: 6, y: 8, side: "south" },
   { x: 16, y: 8, side: "south" },
   { x: 24, y: 8, side: "south" },
-  // Спортзал и библиотека.
+  // Спортзал, вестибюль и библиотека.
   { x: 36, y: 4, side: "east" },
+  { x: 32, y: 3, side: "west" },
+  { x: 16, y: 11, side: "west" },
   { x: 1, y: 13, side: "west" },
   { x: 29, y: 13, side: "east" }
 ];

@@ -1,4 +1,4 @@
-import { TILE, PATROL_CELLS, cellCenter, cellAt, hasLineOfSight, isWallWorld, nextStepWorld } from "./world.js";
+import { TILE, PATROL_CELLS, cellCenter, hasLineOfSight, isWallWorld, nextStepWorld, randomOpenNear, randomFarCell, clearPathWorld } from "./world.js";
 import { createDutyFigure } from "./monster.js";
 
 export { createDutyFigure };
@@ -33,8 +33,11 @@ export class Enemy {
     this.time = Math.random() * 10;
     this.twitchTimer = 2;
     this.sawPlayerHide = false;
+    this.hideKnown = 0; // секунд, в течение которых она «помнит» шкафчик
+    this.opening = 0; // сколько уже стоит у дверцы и тянется к ней
     this.lastKnown = null;
     this.blockedTimer = 0;
+    this._sideSign = 1;
     this.alertTimer = 0;
     this._lastX = 0;
     this._lastZ = 0;
@@ -51,13 +54,31 @@ export class Enemy {
     this.memory = 0;
     this.searchTimer = 0;
     this.patrolIndex = 0;
+    this.roamTarget = null;
     this.sawPlayerHide = false;
+    this.hideKnown = 0;
     this.lastKnown = null;
     this.speed = 0;
     this.moving = false;
     this.blockedTimer = 0;
+    this._sideSign = 1;
     this.alertTimer = 0;
     this.mesh.position.set(this.x, 0, this.z);
+  }
+
+  /** Запомнить шкафчик на несколько секунд (увидела, как ты залез, или услышала вдох). */
+  markHidden(seconds = 11) {
+    this.hideKnown = Math.max(this.hideKnown, seconds);
+    this.sawPlayerHide = true;
+    this.state = "hunt";
+    this.target = { x: this._hideX ?? this.target?.x ?? this.x, z: this._hideZ ?? this.target?.z ?? this.z };
+    this.memory = Math.max(this.memory, 3.6);
+  }
+
+  /** Забыть про шкафчик (игрок вышел или переждал). */
+  forgetHidden() {
+    this.hideKnown = 0;
+    this.sawPlayerHide = false;
   }
 
   get position() {
@@ -138,20 +159,30 @@ export class Enemy {
       this.state = "patrol";
       this.target = null;
       this.sawPlayerHide = false; // потеряла след — шкафчик больше не интересен
+      this.hideKnown = 0;
     }
 
-    // Игрок затаил дыхание — память о шкафчике тает быстрее.
-    if (player.hidden && player.holdingBreath && this.state === "hunt" && this.memory > 0) {
-      this.memory -= dt * 1.6;
+    // Память о шкафчике живёт ограниченное время и тает, пока ты держишь
+    // дыхание. Раньше это был вечный флаг — из-за него смерть в шкафу была
+    // неизбежной, даже с зажатой B.
+    if (this.hideKnown > 0) {
+      const decay = player.hidden && player.holdingBreath ? 2.4 : 1;
+      this.hideKnown = Math.max(0, this.hideKnown - dt * decay);
+      if (this.hideKnown === 0) {
+        this.sawPlayerHide = false;
+        if (this.state === "search" && !player.hidden) {
+          this.state = "patrol";
+          this.target = null;
+        }
+      }
     }
 
-    // Игрок нырнул в шкафчик у неё на глазах — она знает, где он.
-    if (player.hidden && player.hideSeenThisFrame && dist < 7 && los) {
-      this.sawPlayerHide = true;
-      this.state = "hunt";
-      this.target = { x: player.x, z: player.z };
+    // Игрок нырнул в шкафчик у неё на глазах — она это запомнила.
+    if (player.hidden && player.hideSeenThisFrame && dist < 6 && los) {
+      this._hideX = player.x;
+      this._hideZ = player.z;
+      this.markHidden(12);
       this.lastKnown = { x: player.x, z: player.z };
-      this.memory = 7;
     }
 
     /* ---------- цель и движение ---------- */
@@ -166,8 +197,16 @@ export class Enemy {
       speed = 1.7;
       this.searchTimer -= dt;
       if (this.searchTimer <= 0) {
-        this.state = "patrol";
-        this.target = null;
+        // Не нашла — проверяет ещё одну точку рядом, и только потом уходит.
+        const spot = Math.random() < 0.55 ? randomOpenNear(this.x, this.z, 2.5, 7) : null;
+        if (spot) {
+          this.state = "investigate";
+          this.target = spot;
+          this.memory = 2.4;
+        } else {
+          this.state = "patrol";
+          this.target = null;
+        }
       }
     }
 
@@ -175,34 +214,56 @@ export class Enemy {
       this.alertTimer = Math.max(0, this.alertTimer - dt);
       speed = 0;
     }
+    this.speed = speed; // фактическая скорость — для отладки и HUD
 
     let moveTarget = this.target;
     if (this.state === "patrol") {
-      const p = cellCenter(PATROL_CELLS[this.patrolIndex]);
-      moveTarget = p;
       speed = 1.45;
-      if (Math.hypot(p.x - this.x, p.z - this.z) < TILE * 0.55) {
+      // Обход всей школы, а не только коридора: чаще заворачивает в случайное
+      // помещение, иногда возвращается на маршрут.
+      if (!this.roamTarget) {
+        // randomFarCell, а не randomOpenNear: видимость ограничивала её одной
+        // комнатой, и она никогда не выходила из коридора.
+        this.roamTarget = Math.random() < 0.7 ? randomFarCell(this.x, this.z, 8, 34) : null;
+        if (!this.roamTarget) this.roamTarget = cellCenter(PATROL_CELLS[this.patrolIndex]);
+      }
+      moveTarget = this.roamTarget;
+      if (Math.hypot(moveTarget.x - this.x, moveTarget.z - this.z) < TILE * 0.55) {
+        this.roamTarget = null;
         this.patrolIndex = (this.patrolIndex + 1) % PATROL_CELLS.length;
       }
     }
 
     this.moving = false;
+    if (this.opening > 0) {
+      // Стоит у дверцы: не двигается, смотрит на шкафчик.
+      this.angle = Math.atan2(player.x - this.x, player.z - this.z);
+      moveTarget = null;
+    }
     if (moveTarget) {
+      // «Дошла» — только если цель это забытая точка. Пока игрок на виду,
+      // остановка на 1.1 м означала, что она бросала погоню в шаге от него.
       const atTarget = Math.hypot(moveTarget.x - this.x, moveTarget.z - this.z) < TILE * 0.5;
-      if (atTarget && this.state !== "patrol") {
+      if (atTarget && this.state !== "patrol" && !canSee) {
         // Дошла — ищет вокруг последней известной точки.
         if (this.state === "hunt") {
           this.state = "search";
           this.searchTimer = 3.4;
           this.target = null;
           this.sawPlayerHide = this.sawPlayerHide && player.hidden;
+          if (player.hidden) this.searchTimer = Math.max(this.searchTimer, 2.2);
         } else if (this.state === "investigate") {
           this.state = "search";
           this.searchTimer = 2.2;
           this.target = null;
         }
-      } else if (!atTarget) {
-        const step = nextStepWorld(this.x, this.z, moveTarget.x, moveTarget.z);
+      } else if (!atTarget || canSee) {
+        // Прямой путь свободен — идёт точно на цель. Иначе nextStepWorld в
+        // пределах одной клетки возвращал её же центр, и в погоне она танцевала
+        // вокруг игрока, не сокращая дистанцию.
+        const step = clearPathWorld(this.x, this.z, moveTarget.x, moveTarget.z)
+          ? moveTarget
+          : nextStepWorld(this.x, this.z, moveTarget.x, moveTarget.z);
         const angle = Math.atan2(step.x - this.x, step.z - this.z);
         this.angle = angle;
         const dx = Math.sin(angle) * speed * dt;
@@ -214,12 +275,35 @@ export class Enemy {
       }
     }
 
-    // Застряла — пропускаем точку патруля.
-    if (Math.hypot(this.x - this._lastX, this.z - this._lastZ) < 0.02 && this.moving) {
+    // Застряла: путь по клеткам не знает про мебель, поэтому она упирается
+    // в стол или шкафчик. Считаем застревание по «хотела идти, но не сдвинулась»,
+    // обходим боком, а потом меняем цель. Раньше счётчик обнулялся ровно в этот
+    // момент (проверка была завязана на this.moving) и она стояла вечно.
+    const wantsMove = Boolean(moveTarget) && this.state !== "patrol"
+      ? !(Math.hypot(moveTarget.x - this.x, moveTarget.z - this.z) < TILE * 0.5)
+      : (this.state === "patrol" && Boolean(moveTarget));
+    const progressed = Math.hypot(this.x - this._lastX, this.z - this._lastZ) > 0.02;
+
+    if (wantsMove && !progressed && speed > 0 && this.opening <= 0) {
       this.blockedTimer += dt;
-      if (this.blockedTimer > 1.2) {
-        this.patrolIndex = (this.patrolIndex + 1) % PATROL_CELLS.length;
+      this._sideSign = this._sideSign || 1;
+      if (this.blockedTimer > 0.3) {
+        // Боковой шаг: обходит угол стола, а не таранит его.
+        const side = this._sideSign;
+        const step = speed * 0.6 * dt;
+        this.move(Math.cos(this.angle) * step * side, -Math.sin(this.angle) * step * side);
+      }
+      if (this.blockedTimer > 1.3) {
         this.blockedTimer = 0;
+        this._sideSign = -this._sideSign;
+        if (this.state === "patrol") {
+          this.patrolIndex = (this.patrolIndex + 1) % PATROL_CELLS.length;
+          this.roamTarget = null;
+        } else {
+          const spot = randomOpenNear(this.x, this.z, 2, 8) || randomFarCell(this.x, this.z, 6, 20);
+          this.target = spot || null;
+          if (!spot) this.state = "patrol";
+        }
       }
     } else {
       this.blockedTimer = 0;
@@ -228,14 +312,25 @@ export class Enemy {
     this._lastZ = this.z;
 
     /* ---------- контакт ---------- */
-    if (dist < 0.85 && !player.hidden) {
+    if (dist < 0.85 && !player.hidden && los) {
       ctx.onKill();
       return;
     }
-    // Нашла в шкафчике — только если точно знает, где ты спрятался.
-    if (player.hidden && this.sawPlayerHide && dist < 1.15) {
-      ctx.onKill("Она медленно открыла дверцу шкафчика…");
-      return;
+    // У шкафчика: сначала она тянется к дверце (1,2 с) — этого времени
+    // хватает, чтобы зажать B. Затаился — отходит и забывает.
+    const atLocker = player.hidden && this.hideKnown > 0 && dist < 1.35 && los;
+    if (!atLocker) {
+      this.opening = 0;
+    } else if (player.holdingBreath) {
+      // Затаился — она теряет уверенность и не тянется к дверце.
+      this.opening = 0;
+      this.hideKnown = Math.max(0, this.hideKnown - dt * 1.6);
+    } else {
+      this.opening += dt;
+      if (this.opening > 1.2) {
+        ctx.onKill("Она медленно открыла дверцу шкафчика…");
+        return;
+      }
     }
 
     // На точке поиска осматривается по сторонам.
